@@ -1,0 +1,29 @@
+project_id = "seopilot"
+
+# JWT is verified inside each function with the service client, so the gateway check is off.
+[functions.google]
+verify_jwt = false
+[functions.sync]
+verify_jwt = false
+[functions.audit]
+verify_jwt = false
+[functions.insights]
+verify_jwt = false
+[functions.report]
+verify_jwt = false
+[functions.scheduled]
+verify_jwt = false
+[functions.research]
+verify_jwt = false
+[functions.crawl]
+verify_jwt = false
+[functions.backlinks]
+verify_jwt = false
+[functions.keywordlab]
+verify_jwt = false
+[functions.competitor]
+verify_jwt = false
+[functions.gaprovision]
+verify_jwt = false
+[functions.mygoogle]
+verify_jwt = false
