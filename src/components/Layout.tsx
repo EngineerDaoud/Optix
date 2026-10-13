@@ -78,9 +78,9 @@ export const nav = [
 ];
 
 const Logo = () => (
-  <span className="flex items-center gap-2" aria-label={BRAND.name}>
-    <img src="/logo.png" alt="" aria-hidden="true" className="h-8 w-8 object-contain" />
-    <span className="hidden text-lg font-bold tracking-tight text-[#14112b] dark:text-white sm:block">
+  <span className="flex items-center gap-1" aria-label={BRAND.name}>
+    <img src="/logo.png" alt="" aria-hidden="true" className="h-12 w-12 object-contain" />
+    <span className="hidden text-xl font-bold tracking-tight text-[#14112b] dark:text-white sm:block">
       {BRAND.name}
     </span>
   </span>
@@ -336,7 +336,7 @@ export default function Layout() {
       >
         <div className="mt-2 flex flex-col items-center justify-between gap-3 rounded-2xl border border-brand-100/80 bg-white/70 px-4 py-3 text-xs text-slate-500 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400 sm:flex-row">
           <span className="flex items-center gap-2">
-            <img src="/logo.png" alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
+            <img src="/logo.png" alt="" aria-hidden="true" className="h-6 w-6 object-contain" />
             <b className="font-semibold text-slate-700 dark:text-slate-200">
               {BRAND.name}
             </b>

@@ -124,9 +124,9 @@ export default function Login() {
         <Link
           to="/"
           aria-label={`${BRAND.name} home`}
-          className="flex items-center gap-2 text-lg font-bold tracking-tight text-[#14112b]"
+          className="flex items-center gap-1 text-xl font-bold tracking-tight text-[#14112b]"
         >
-          <img src="/logo.png" alt="" aria-hidden="true" className="h-8 w-8 object-contain" />
+          <img src="/logo.png" alt="" aria-hidden="true" className="h-12 w-12 object-contain" />
           {BRAND.name}
         </Link>
         <Link
