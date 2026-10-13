@@ -6,5 +6,4 @@ export const BRAND = {
 export const SANOMADS_URL = "https://www.sanomads.com/";
 
 /** Shown when someone who is not on the approved list tries to sign in or sign up. */
-export const COMING_SOON_MESSAGE =
-  "Coming soon! Access is currently limited to approved users. We will open it to everyone shortly.";
+export const COMING_SOON_MESSAGE = "Coming soon for you!";
