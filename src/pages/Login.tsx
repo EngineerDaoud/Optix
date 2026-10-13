@@ -126,7 +126,6 @@ export default function Login() {
           aria-label={`${BRAND.name} home`}
           className="flex items-center gap-1 text-xl font-bold tracking-tight text-[#14112b]"
         >
-          <img src="/logo.png" alt="" aria-hidden="true" className="h-12 w-12 object-contain" />
           {BRAND.name}
         </Link>
         <Link
