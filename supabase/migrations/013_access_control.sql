@@ -15,7 +15,9 @@ insert into public.allowed_users (email, role) values
   ('abdulrehmanhashmi630@gmail.com', 'user'),
   ('mussa@sanomads.us',              'user'),
   ('fatima@sanomads.us',             'user'),
-  ('alizaibkhan07@gmail.com',        'user')
+  ('alizaibkhan2299@gmail.com',      'user'),
+  ('laibauaf22@gmail.com',           'user'),
+  ('zeeshan@sanomads.us',            'admin')
 on conflict (email) do update set role = excluded.role;
 
 -- 2) Role helpers ---------------------------------------------------------------------------------

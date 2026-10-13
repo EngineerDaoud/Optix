@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import { COMING_SOON_MESSAGE } from "../lib/brand";
 
 type Role = "admin" | "user";
 type Ctx = {
@@ -61,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDenied(
           error
             ? `Access check failed: ${error.message}`
-            : "This email is not approved for access. Please contact the admin.",
+            : COMING_SOON_MESSAGE,
         );
         setRole(null);
         setCheckedFor(null);

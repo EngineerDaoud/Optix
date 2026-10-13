@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, BarChart3, Check, Eye, EyeOff, Lock, Mail, Plug } from "lucide-react";
-import { BRAND } from "../lib/brand";
+import { BRAND, COMING_SOON_MESSAGE, SANOMADS_URL } from "../lib/brand";
 import { supabase } from "../lib/supabase";
 import { ErrorNote, Spinner } from "../components/ui";
 import { useAuth } from "../context/Auth";
@@ -98,7 +98,7 @@ export default function Login() {
         // the database refuses accounts for emails that are not on the approved list
         setError(
           /database error|not approved/i.test(error.message)
-            ? "This email is not approved for access. Please contact the admin."
+            ? COMING_SOON_MESSAGE
             : error.message,
         );
         return;
@@ -281,6 +281,18 @@ export default function Login() {
           </aside>
         </div>
       </div>
+
+      <p className="mt-2 text-center text-xs text-slate-500">
+        Powered by{" "}
+        <a
+          href={SANOMADS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-[#6c47ff] hover:underline"
+        >
+          Sanomads
+        </a>
+      </p>
     </div>
   );
 }

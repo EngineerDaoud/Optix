@@ -15,7 +15,7 @@ import {
   Store,
   X,
 } from "lucide-react";
-import { BRAND } from "../lib/brand";
+import { BRAND, SANOMADS_URL } from "../lib/brand";
 
 /* ------------------------------------------------------------------ */
 /* Theme + content                                                     */
@@ -737,7 +737,10 @@ export default function Landing() {
           </nav>
         </div>
         <div className="mt-10 border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-          © {new Date().getFullYear()} {BRAND.name}. All rights reserved. Powered By Sanomads
+          © {new Date().getFullYear()} {BRAND.name}. All rights reserved. Powered by{" "}
+          <a href={SANOMADS_URL} target="_blank" rel="noopener noreferrer" className="font-semibold transition hover:text-[#6c47ff]">
+            Sanomads
+          </a>
         </div>
       </footer>
     </div>

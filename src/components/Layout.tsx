@@ -1,4 +1,4 @@
-import { BRAND } from "../lib/brand";
+import { BRAND, SANOMADS_URL } from "../lib/brand";
 import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
@@ -358,7 +358,15 @@ export default function Layout() {
             ))}
           </nav>
           <span>
-            © {new Date().getFullYear()} {BRAND.name}
+            © {new Date().getFullYear()} {BRAND.name} · Powered by{" "}
+            <a
+              href={SANOMADS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold transition hover:text-brand-600"
+            >
+              Sanomads
+            </a>
           </span>
         </div>
       </footer>
