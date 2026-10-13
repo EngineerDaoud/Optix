@@ -76,9 +76,7 @@ function Logo({ light = false }: { light?: boolean }) {
       aria-label={`${BRAND.name} home`}
       className={`flex items-center gap-2 text-lg font-bold tracking-tight ${light ? "text-white" : "text-[#14112b]"}`}
     >
-      <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#6c47ff] text-white">
-        <BarChart3 className="h-4 w-4" aria-hidden="true" />
-      </span>
+      <img src="/logo.png" alt="" aria-hidden="true" className="h-8 w-8 object-contain" />
       {BRAND.name}
     </Link>
   );
@@ -154,9 +152,7 @@ function HeroDashboard() {
         {/* app top bar */}
         <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-4 py-3">
           <div className="flex items-center gap-2 text-sm font-bold text-[#14112b]">
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-[#6c47ff] text-white">
-              <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
-            </span>
+            <img src="/logo.png" alt="" aria-hidden="true" className="h-6 w-6 object-contain" />
             {BRAND.name}
           </div>
           <div className="hidden gap-5 text-[11px] text-slate-500 sm:flex" aria-hidden="true">
@@ -611,7 +607,7 @@ export default function Landing() {
                 </div>
                 <div className="grid grid-cols-[120px_1fr]">
                   <ul className="space-y-1 border-r border-slate-100 p-3 text-[11px] text-slate-500" aria-hidden="true">
-                    <li className="mb-2 flex items-center gap-1.5 font-bold text-[#14112b]"><BarChart3 className="h-3.5 w-3.5 text-[#6c47ff]" />{BRAND.name}</li>
+                    <li className="mb-2 flex items-center gap-1.5 font-bold text-[#14112b]"><img src="/logo.png" alt="" aria-hidden="true" className="h-4 w-4 object-contain" />{BRAND.name}</li>
                     {["Dashboard", "Traffic", "Competitors", "Domains", "Keyword Lab", "Reports", "Tasks"].map((n, i) => (
                       <li key={n} className={`rounded-md px-2 py-1.5 ${i === 0 ? "bg-[#efeaff] font-semibold text-[#5b38ee]" : ""}`}>{n}</li>
                     ))}

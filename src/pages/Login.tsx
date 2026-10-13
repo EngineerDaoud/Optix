@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowLeft, BarChart3, Check, Eye, EyeOff, Lock, Mail, Plug } from "lucide-react";
+import { ArrowLeft, Check, Eye, EyeOff, Lock, Mail, Plug } from "lucide-react";
 import { BRAND, COMING_SOON_MESSAGE, SANOMADS_URL } from "../lib/brand";
 import { supabase } from "../lib/supabase";
 import { ErrorNote, Spinner } from "../components/ui";
@@ -126,9 +126,7 @@ export default function Login() {
           aria-label={`${BRAND.name} home`}
           className="flex items-center gap-2 text-lg font-bold tracking-tight text-[#14112b]"
         >
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#6c47ff] text-white">
-            <BarChart3 className="h-4 w-4" aria-hidden="true" />
-          </span>
+          <img src="/logo.png" alt="" aria-hidden="true" className="h-8 w-8 object-contain" />
           {BRAND.name}
         </Link>
         <Link
