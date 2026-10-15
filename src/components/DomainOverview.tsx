@@ -31,6 +31,38 @@ const daysLeft = (to?: string | null) =>
 
 const clamp = (n: number, a = 0, b = 100) => Math.max(a, Math.min(b, n));
 
+/**
+ * Authority 0-100, built like the well-known "authority score": link strength first, then how much search traffic the site earns.
+ *  - link strength: the 0-10 link score on a curve (1/10 is about 14, 5/10 about 52, 8/10 about 82), because a plain x10 made small sites look far too weak
+ *  - traffic: organic visits on a log scale (100 visits about 20, 5K about 37, 100K about 50, 1M about 60)
+ *  - a site with no link score still gets a value from traffic and global rank, so the ring is never empty when we know something
+ */
+function authorityScore(
+  oprScore: number | null | undefined,
+  organic: number | null | undefined,
+  trancoRank: number | null | undefined,
+): number | null {
+  const link =
+    oprScore != null ? 100 * Math.pow(clamp(oprScore, 0, 10) / 10, 0.85) : null;
+  const traffic =
+    organic != null && organic > 0
+      ? clamp((Math.log10(organic + 1) / 10) * 100)
+      : null;
+  const rank =
+    trancoRank && trancoRank <= 1e6
+      ? clamp(((6 - Math.log10(trancoRank)) / 6) * 100 + 10)
+      : null;
+  const parts: [number | null, number][] = [
+    [link, 0.75],
+    [traffic, 0.25],
+    [rank, 0.15],
+  ];
+  const used = parts.filter(([v]) => v != null) as [number, number][];
+  if (!used.length) return null;
+  const w = used.reduce((a, [, x]) => a + x, 0);
+  return Math.round(clamp(used.reduce((a, [v, x]) => a + v * x, 0) / w));
+}
+
 const ratingLabel = (stars: number) =>
   stars >= 4.5
     ? "Excellent"
@@ -140,7 +172,14 @@ export default function DomainOverview({
     est = d.traffic?.seo;
   const bk = positionBuckets(d);
   const left = daysLeft(dom?.expires);
-  const authority = s.opr?.score != null ? Math.round(s.opr.score * 10) : null;
+  // the server builds the full score from every signal; old saved checks fall back to the local formula
+  const auth = s.authority as {
+    score: number;
+    parts: { key: string; label: string; value: number }[];
+    confidence: string;
+  } | null;
+  const authority: number | null =
+    auth?.score ?? authorityScore(s.opr?.score, est?.organic?.mid, s.tranco);
   const when = dom?.registered ?? s.age?.since ?? null;
 
   // ---- Overall site rating (0-100 -> 0-5 stars) ----
@@ -261,16 +300,30 @@ export default function DomainOverview({
           <Ring
             value={authority}
             label="Authority (0-100)"
-            sub="Based on links across the web."
+            sub={
+              auth?.parts?.length
+                ? auth.parts.map((p) => `${p.label} ${p.value}`).join(" · ")
+                : "Based on links across the web."
+            }
           />
           <Ring value={m.health} label="Site health" />
         </div>
         <Row
           k="Global rank"
-          v={s.tranco ? `#${s.tranco.toLocaleString()} of 1M` : "Not in top 1M"}
+          v={
+            s.tranco
+              ? s.tranco <= 1e6
+                ? `#${s.tranco.toLocaleString()} of 1M`
+                : `#${s.tranco.toLocaleString()}`
+              : "Not ranked"
+          }
         />
         <Row
           k="Authority score"
+          v={authority != null ? `${authority} / 100` : "–"}
+        />
+        <Row
+          k="Link strength"
           v={
             s.opr ? (
               <>

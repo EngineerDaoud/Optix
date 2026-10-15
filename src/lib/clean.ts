@@ -11,8 +11,11 @@ export function publicText(
 ): string | undefined {
   if (input == null) return undefined;
   let s = String(input);
-  if (SETUP.test(s))
+  if (SETUP.test(s)) {
+    // The visitor sees the friendly text; the real reason is kept in the browser console (F12) so it can be fixed.
+    console.warn("[hidden error]", s);
     return "This feature is temporarily unavailable. Please try again in a little while.";
+  }
   s = s
     .replace(
       /\b(Gemini|Groq|OpenAI|ChatGPT|Anthropic|Claude|LLM)\b/gi,

@@ -50,6 +50,8 @@ import {
   Page,
 } from "../_shared/analyse.ts";
 import { bankDomainKeywords, recordUniverse } from "../_shared/universe.ts";
+import { bankSignals, computeAuthority } from "../_shared/authority.ts";
+import { verifiedSignals } from "../_shared/googlemetrics.ts";
 import {
   bankEvidence,
   normKw,
@@ -555,7 +557,7 @@ async function understand(site: string, pages: Page[], want = 40) {
   const system = `You analyse a website using ONLY the page data provided. Return ONLY a JSON object, no markdown:
 {"topic": "one short sentence", "audience": "one short sentence", "language": "two-letter code such as en", "offerings": ["main products, services or content types"], "seed_keywords": ["..."]}
 Rules:
-- seed_keywords: up to ${want} phrases of 2 to 5 words that a real customer would type into Google to find this kind of business, product or content. Spread them over EVERY product category, service and topic the pages show (not only the main one), and mix the search types: product or service names, buying phrases (buy, price, for sale, near me, best), comparisons, and problems or questions people search before buying. Use the site's own subject and wording. Prefer SPECIFIC phrases that match the real product, category or collection names on the pages (include models, sizes, voltages, part types and brands that are sold) over broad head terms such as "buy electric bikes uk". At least two thirds of the phrases must be specific. Do not add phrases for products the pages do not show. Never use utility pages as keywords: about, contact, privacy, terms, cart, checkout, login, account, password reset, shipping or returns policy, FAQ.
+- seed_keywords: up to ${want} phrases of 2 to 5 words that a real customer would type into Google to find this kind of business, product or content. Spread them over EVERY product category, service and topic the pages show (not only the main one), and mix the search types: product or service names, buying phrases (buy, price, for sale, near me, best), comparisons, and problems or questions people search before buying. Use the site's own subject and wording. Mix SPECIFIC phrases that match the real product, category or collection names on the pages (include models, sizes, voltages, part types and brands that are sold) with SHORT category terms of 2 to 3 words (for example "custom polos" or "embroidered aprons"), because short category terms carry most of a shop's real search traffic. About half of the phrases must be specific, and at least a quarter must be short category terms. Skip only very broad one-word terms. Do not add phrases for products the pages do not show. Never use utility pages as keywords: about, contact, privacy, terms, cart, checkout, login, account, password reset, shipping or returns policy, FAQ.
 - No keywords that are only the brand name. Do not invent facts. If the data is too thin, return fewer keywords.`;
   let lastErr = "";
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -934,7 +936,9 @@ Deno.serve(
             (r.result?.meta?.kwLimit ?? 15) >= kwLimit,
         ) ?? null;
       const staleNoSerper =
-        data?.result?.meta?.serperUsed === false && serperKey;
+        (data?.result?.meta?.serperUsed === false ||
+          (data?.result?.meta?.keywordsChecked ?? 1) === 0) &&
+        serperKey;
       if (data && !staleNoSerper)
         return json({
           ...data.result,
@@ -1931,6 +1935,42 @@ Deno.serve(
       }
     }
 
+    // Authority score: every free signal together (links, referring sites, traffic, keywords, rank, real users, age)
+    let authority: ReturnType<typeof computeAuthority> = null;
+    try {
+      const sig = shared
+        ? { referringDomains: null, top10Appearances: null }
+        : await bankSignals(siteRoot);
+      const regYear = (domain as { registered?: string } | null)?.registered ??
+        (age as { since?: string } | null)?.since ?? null;
+      const ageYears = regYear
+        ? Math.max(0, (Date.now() - new Date(regYear).getTime()) / (365.25 * 864e5))
+        : null;
+      // real Search Console / Analytics numbers when this user connected Google (never blocks the run: max 9 s)
+      const verified = shared
+        ? null
+        : await Promise.race([
+            verifiedSignals(user.id, siteRoot),
+            new Promise<null>((r) => setTimeout(() => r(null), 9000)),
+          ]).catch(() => null);
+      authority = computeAuthority({
+        verified,
+        oprScore: (opr as { score?: number } | null)?.score ?? null,
+        trancoRank: trancoRank ?? null,
+        organicTraffic:
+          (traffic as { seo?: { organic?: { mid?: number } } } | null)?.seo
+            ?.organic?.mid ?? null,
+        rankedKeywords: rankedCount ?? null,
+        referringDomains: sig.referringDomains,
+        top10Appearances: sig.top10Appearances,
+        realUsers: !!field,
+        ageYears,
+        pages: urlsDiscovered ?? null,
+      });
+    } catch (e) {
+      notes.push(`Authority could not be built: ${(e as Error).message}`);
+    }
+
     const result = {
       meta: {
         v: 3,
@@ -1950,7 +1990,7 @@ Deno.serve(
         rankedCount,
         serperRequests: (ranks?.requests ?? 0) + extraRequests,
         serperCached: (ranks?.cached ?? 0) + extraCached,
-        serperUsed: !!ranks,
+        serperUsed: !!ranks && !ranks.fatal, // a run where Serper failed (no credits, bad key) must not be saved as a good result
         health,
         kdCoverage,
       },
@@ -1963,6 +2003,7 @@ Deno.serve(
         age,
         domain,
         opr,
+        authority,
         root: siteRoot,
         speed,
         speedDesktop,
