@@ -61,7 +61,17 @@ export const hostOf = (link: string) => {
 
 const TRACKING = /^(utm_|fbclid|gclid|msclkid|mc_cid|mc_eid|_ga|ref$|ref_)/i;
 /** One stable key per URL: no hash, no tracking params, no trailing slash, lowercase host. */
+const CANON_CACHE = new Map<string, string | null>();
 export function canon(u: string): string | null {
+  // the same URL is normalised thousands of times per run (every link on every page): remember the answer
+  const hit = CANON_CACHE.get(u);
+  if (hit !== undefined) return hit;
+  const out = canonRaw(u);
+  if (CANON_CACHE.size > 40_000) CANON_CACHE.clear();
+  CANON_CACHE.set(u, out);
+  return out;
+}
+function canonRaw(u: string): string | null {
   try {
     const x = new URL(u);
     if (!/^https?:$/.test(x.protocol)) return null;

@@ -49,7 +49,12 @@ import {
   norm,
   Page,
 } from "../_shared/analyse.ts";
-import { bankDomainKeywords, recordUniverse } from "../_shared/universe.ts";
+import { recordUniverse } from "../_shared/universe.ts";
+import {
+  bankTableRows,
+  loadBankForDomain,
+  type BankAttach,
+} from "../_shared/attach.ts";
 import { bankSignals, computeAuthority } from "../_shared/authority.ts";
 import { verifiedSignals } from "../_shared/googlemetrics.ts";
 import {
@@ -1035,32 +1040,24 @@ Deno.serve(
         .eq("user_id", user.id)
         .maybeSingle();
       if (!job) throw new HttpError(404, "Crawl not found. Start again.");
-      const rows: {
+      type CrawlRow = {
         url: string;
         kind: string;
         status: number | null;
         page: Page | null;
-      }[] = [];
-      for (let from = 0; ; from += 300) {
-        const { data } = await admin()
-          .from("crawl_pages")
-          .select("url, kind, status, page")
-          .eq("job_id", jobId)
-          .order("depth")
-          .order("url")
-          .range(from, from + 299);
-        rows.push(...((data ?? []) as typeof rows));
-        if (!data || data.length < 300) break;
-      }
+      };
       const seenPage = new Set<string>();
       const loaded: Page[] = [];
       let linksChecked = 0;
+      let discovered = 0; // internal URLs seen (pages + internal links)
       let limitedPages = 0; // pages the website would not show us because we asked too fast (429): unchecked, not broken
-      for (const r of rows) {
+      // rows are handled batch by batch and then dropped, so a 500-page crawl never sits in memory all at once
+      const handle = (r: CrawlRow) => {
+        if (r.kind !== "ext") discovered++;
         const key = canon(r.url) ?? r.url;
         if (r.kind === "page" ? isLimited(r.page?.status ?? r.status) : isLimited(r.status)) {
           if (r.kind === "page") limitedPages++;
-          continue;
+          return;
         }
         if (r.kind === "page" && r.page) {
           const pk = canon(r.page.url) ?? r.page.url;
@@ -1071,7 +1068,7 @@ Deno.serve(
         }
         if (r.kind !== "page") linksChecked++;
         const st = r.status;
-        if (st === null || st === undefined) continue;
+        if (st === null || st === undefined) return;
         if (r.kind === "page" ? st !== 200 : badStatus(st, r.kind)) {
           if (r.kind === "ext") brokenExt.add(key);
           else if (r.kind === "link" || badStatus(st, "page")) {
@@ -1079,6 +1076,31 @@ Deno.serve(
             brokenStatus.set(key, st);
           }
         }
+      };
+      // 1) the crawled pages (these carry the big page data): small batches
+      for (let from = 0; ; from += 60) {
+        const { data } = await admin()
+          .from("crawl_pages")
+          .select("url, kind, status, page")
+          .eq("job_id", jobId)
+          .eq("kind", "page")
+          .order("depth")
+          .order("url")
+          .range(from, from + 59);
+        for (const r of (data ?? []) as CrawlRow[]) handle(r);
+        if (!data || data.length < 60) break;
+      }
+      // 2) the link checks (status only, no page data): big batches
+      for (let from = 0; ; from += 1000) {
+        const { data } = await admin()
+          .from("crawl_pages")
+          .select("url, kind, status")
+          .eq("job_id", jobId)
+          .neq("kind", "page")
+          .order("url")
+          .range(from, from + 999);
+        for (const r of (data ?? []) as Omit<CrawlRow, "page">[]) handle({ ...r, page: null });
+        if (!data || data.length < 1000) break;
       }
       if (!loaded.length)
         throw new HttpError(502, "The crawl found no pages. Try again.");
@@ -1088,8 +1110,7 @@ Deno.serve(
           Number(canon(y.url) === homeKey) - Number(canon(x.url) === homeKey),
       );
       pages = loaded;
-      urlsDiscovered =
-        rows.filter((r) => r.kind !== "ext").length + (job.skipped ?? 0);
+      urlsDiscovered = discovered + (job.skipped ?? 0);
       crawlInfo = {
         full: true,
         maxPages: job.max_pages,
@@ -1507,6 +1528,8 @@ Deno.serve(
     let extraRequests = 0;
     let extraCached = 0;
     let keywordTable: Record<string, unknown>[] = [];
+    let bankAttach: BankAttach | null = null; // keywords the data bank already knew for this site (attached to the table below)
+    let bankAttached = 0;
     let topics: ReturnType<typeof groupTopics> = [];
     let sov: ReturnType<typeof shareOfVoice> = [];
     let ideaTable: Record<string, unknown>[] = [];
@@ -1622,10 +1645,12 @@ Deno.serve(
           }
         }
         // every other keyword the data bank has seen this site rank for (saved Google results of earlier searches by anyone)
-        const bank = await bankDomainKeywords(
-          shared ? finalHost : siteRoot,
-          gl,
-        );
+        // the missing volumes of those keywords are created now (max 60, only while there is time) and saved, so the bank grows with every search
+        bankAttach = await loadBankForDomain(shared ? finalHost : siteRoot, gl, {
+          fill: elapsed() < 70_000,
+          fillLimit: 60,
+        });
+        const bank = bankAttach;
         seo = seoEstimate({
           gl,
           scope,
@@ -1711,6 +1736,22 @@ Deno.serve(
               : null,
           };
         });
+        // ATTACH: every other keyword the data bank knows this site ranks for joins the table (marked source "bank"), so the table
+        // shows the checked keywords AND what earlier searches of anyone already found, like the "organic keywords" of the paid tools
+        if (bankAttach?.rows.length) {
+          const checkedKeys = new Set(
+            keywordTable.map((k) => normKw(String(k.keyword))),
+          );
+          const extra = bankTableRows(bankAttach.rows, {
+            exclude: checkedKeys,
+            brand,
+            limit: 400,
+          });
+          bankAttached = extra.length;
+          keywordTable = [...keywordTable, ...extra].sort(
+            (a, b) => (b.opportunity as number) - (a.opportunity as number),
+          );
+        }
         topics = groupTopics(
           keywordTable.map((k) => ({
             keyword: String(k.keyword),
@@ -1993,6 +2034,9 @@ Deno.serve(
         serperUsed: !!ranks && !ranks.fatal, // a run where Serper failed (no credits, bad key) must not be saved as a good result
         health,
         kdCoverage,
+        bankAttached, // keywords added to the table from the data bank (no new Google call)
+        bankFilled: bankAttach?.filled ?? 0, // of the bank keywords, how many got their volume created by this run
+        bankUnvolumed: bankAttach?.unvolumed ?? 0,
       },
       site: {
         status: homeRes.status,
@@ -2057,8 +2101,10 @@ Deno.serve(
 
     // save everything this run learned in the data bank: rank history, keyword numbers, daily snapshot (all best effort)
     try {
-      const rows = keywordTable.length
-        ? keywordTable.map((k) => ({
+      // bank keywords are older positions from other searches: they must not be saved as today's rank history of this user
+      const ownTable = keywordTable.filter((k) => k.source !== "bank");
+      const rows = ownTable.length
+        ? ownTable.map((k) => ({
             keyword: String(k.keyword),
             position: (k.position as number | null) ?? null,
             url: (k.url as string | null) ?? null,
@@ -2086,7 +2132,7 @@ Deno.serve(
       await Promise.allSettled([
         recordRanks(user.id, host, gl, rows),
         saveKeywordDetails(
-          keywordTable
+          ownTable
             .filter((k) => !String(k.keyword).endsWith("(brand)"))
             .map((k) => ({
               keyword: String(k.keyword),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Copy, ExternalLink, Link2, RefreshCw } from "lucide-react";
 import { fn } from "../lib/supabase";
 import { publicText } from "../lib/clean";
@@ -197,10 +197,16 @@ export default function BacklinksPanel({
     total: number;
   }>({ text: "", done: 0, total: 0 });
 
+  // Every answer that comes back late for a website the user has already left is thrown away
+  // (before: a slow run of site A could finish after switching to site B and show A's backlinks on B).
+  const runRef = useRef(0);
+
   /** The saved result of the last run (free and instant). */
   const loadSaved = async () => {
+    const my = runRef.current;
     try {
       const r = await fn("backlinks", { url, action: "cache" });
+      if (runRef.current !== my) return;
       if (r.miss) {
         setBl(null);
         onLoaded?.(null);
@@ -217,6 +223,8 @@ export default function BacklinksPanel({
   /** A run is split into small calls (find, then check 10 pages at a time, then score) so one slow site can never break it.
    *  Every confirmed backlink shows up in the table right away. */
   const run = async () => {
+    const my = ++runRef.current;
+    const fresh = () => runRef.current === my;
     setBusy(true);
     setErr(null);
     setLive([]);
@@ -227,10 +235,11 @@ export default function BacklinksPanel({
     });
     try {
       const d = await fn("backlinks", { url, action: "discover" });
+      if (!fresh()) return;
       const cands = (d.cands ?? []) as any[];
       const batches: any[][] = [];
-      for (let i = 0; i < cands.length; i += 10)
-        batches.push(cands.slice(i, i + 10));
+      for (let i = 0; i < cands.length; i += 12)
+        batches.push(cands.slice(i, i + 12));
       const all: Row[] = [];
       const notes: string[] = [...(d.notes ?? [])];
       let authorityUsed = false,
@@ -243,8 +252,8 @@ export default function BacklinksPanel({
         total: cands.length,
       });
       await Promise.all(
-        Array.from({ length: Math.min(3, batches.length) }, async () => {
-          while (next < batches.length) {
+        Array.from({ length: Math.min(5, batches.length) }, async () => {
+          while (next < batches.length && fresh()) {
             const mine = batches[next++];
             try {
               const v = await fn("backlinks", {
@@ -253,6 +262,7 @@ export default function BacklinksPanel({
                 brand: d.brand,
                 cands: mine,
               });
+              if (!fresh()) return;
               authorityUsed = authorityUsed || !!v.authorityUsed;
               all.push(...(v.rows as Row[]));
               setLive(
@@ -283,6 +293,7 @@ export default function BacklinksPanel({
           }
         }),
       );
+      if (!fresh()) return;
       if (failed)
         notes.push(
           `${failed} pages could not be checked because the server stopped on them. Press Find again to retry.`,
@@ -307,11 +318,13 @@ export default function BacklinksPanel({
           totalBacklinks: d.totalBacklinks,
           totalDomains: d.totalDomains,
         });
+        if (!fresh()) return;
         const n = normalize(r);
         setBl(n);
         onLoaded?.(n);
         setLive([]);
       } catch (e) {
+        if (!fresh()) return;
         // scoring failed, but the confirmed backlinks stay on screen
         setBl(null);
         onLoaded?.(null);
@@ -320,11 +333,14 @@ export default function BacklinksPanel({
         );
       }
     } catch (e) {
+      if (!fresh()) return;
       setErr((e as Error).message);
     }
-    setBusy(false);
+    if (fresh()) setBusy(false);
   };
   useEffect(() => {
+    runRef.current++; // a run of the previous website is no longer allowed to show anything
+    setBusy(false);
     setBl(null);
     onLoaded?.(null);
     setLive([]);

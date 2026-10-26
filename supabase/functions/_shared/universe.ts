@@ -488,29 +488,74 @@ export type BankKeyword = {
   position: number;
   volume: number;
   truth: boolean;
+  // extra detail the bank already holds about this keyword (used to attach it to the ranking table like Semrush "organic keywords")
+  url?: string | null;
+  title?: string | null;
+  prevPosition?: number | null;
+  bestPosition?: number | null;
+  lastSeen?: string | null;
+  kd?: number | null;
+  intent?: string | null;
+  commercial?: boolean;
+  volumeLow?: number | null;
+  volumeHigh?: number | null;
+  features?: unknown;
 };
 
-/** Keywords where this domain was seen in a saved Google result (last 120 days), with the best volume the bank has for each. */
+/** A keyword the bank knows the domain ranks for, but that has no search volume saved yet. */
+export type PendingKeyword = {
+  keyword: string;
+  position: number;
+  url: string | null;
+  title: string | null;
+  prevPosition: number | null;
+  bestPosition: number | null;
+  lastSeen: string | null;
+};
+
+/**
+ * Keywords where this domain was seen in a saved Google result (last 120 days), with the best volume the bank has for each.
+ * `rows`     = keywords that already have a volume (Search Console truth > saved volume > AI volume x learned correction)
+ * `pending`  = keywords the domain ranks for but nobody asked the volume of yet (the caller can fill them, see _shared/attach.ts)
+ */
 export async function bankDomainKeywords(
   domain: string,
   country: string,
   limit = 1500,
-): Promise<{ rows: BankKeyword[]; unvolumed: number }> {
+): Promise<{ rows: BankKeyword[]; unvolumed: number; pending: PendingKeyword[] }> {
   try {
     const { data } = await admin()
       .from("serp_positions")
-      .select("keyword, position")
+      .select("keyword, position, url, title, prev_position, best_position, last_seen")
       .eq("domain", domain)
       .eq("country", country)
       .gte("last_seen", cutoff(120))
       .order("position", { ascending: true })
       .limit(limit);
-    const found = (data ?? []) as { keyword: string; position: number }[];
-    if (!found.length) return { rows: [], unvolumed: 0 };
+    const found = (data ?? []) as {
+      keyword: string;
+      position: number;
+      url: string | null;
+      title: string | null;
+      prev_position: number | null;
+      best_position: number | null;
+      last_seen: string | null;
+    }[];
+    if (!found.length) return { rows: [], unvolumed: 0, pending: [] };
     const cal = await loadCalibration();
-    const vols = new Map<
+    const info = new Map<
       string,
-      { volume: number | null; ai: number | null; gsc: number | null }
+      {
+        volume: number | null;
+        ai: number | null;
+        gsc: number | null;
+        low: number | null;
+        high: number | null;
+        kd: number | null;
+        intent: string | null;
+        commercial: boolean | null;
+        features: unknown;
+      }
     >();
     await chunked(
       found.map((r) => r.keyword),
@@ -518,27 +563,43 @@ export async function bankDomainKeywords(
       async (part) => {
         const { data: b } = await admin()
           .from("keyword_bank")
-          .select("keyword, volume, volume_ai, volume_gsc")
+          .select(
+            "keyword, volume, volume_ai, volume_gsc, vol_low, vol_high, kd, intent, commercial, features",
+          )
           .eq("country", country)
           .in("keyword", part);
         for (const r of b ?? [])
-          vols.set(r.keyword, {
+          info.set(r.keyword, {
             volume: r.volume,
             ai: r.volume_ai,
             gsc: r.volume_gsc,
+            low: r.vol_low,
+            high: r.vol_high,
+            kd: r.kd,
+            intent: r.intent,
+            commercial: r.commercial,
+            features: r.features,
           });
       },
     );
     const rows: BankKeyword[] = [];
-    let unvolumed = 0;
+    const pending: PendingKeyword[] = [];
     for (const f of found) {
-      const v = vols.get(f.keyword);
+      const v = info.get(f.keyword);
       const volume =
         v?.gsc ??
         v?.volume ??
         (v?.ai != null ? Math.round(v.ai * cal.factor) : null);
       if (volume == null) {
-        unvolumed++;
+        pending.push({
+          keyword: f.keyword,
+          position: f.position,
+          url: f.url,
+          title: f.title,
+          prevPosition: f.prev_position,
+          bestPosition: f.best_position,
+          lastSeen: f.last_seen,
+        });
         continue;
       }
       rows.push({
@@ -546,11 +607,22 @@ export async function bankDomainKeywords(
         position: f.position,
         volume,
         truth: v?.gsc != null,
+        url: f.url,
+        title: f.title,
+        prevPosition: f.prev_position,
+        bestPosition: f.best_position,
+        lastSeen: f.last_seen,
+        kd: v?.kd ?? null,
+        intent: v?.intent ?? null,
+        commercial: !!v?.commercial,
+        volumeLow: v?.low ?? null,
+        volumeHigh: v?.high ?? null,
+        features: v?.features ?? null,
       });
     }
-    return { rows, unvolumed };
+    return { rows, unvolumed: pending.length, pending };
   } catch {
-    return { rows: [], unvolumed: 0 };
+    return { rows: [], unvolumed: 0, pending: [] };
   }
 }
 

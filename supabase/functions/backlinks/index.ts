@@ -45,10 +45,10 @@ import {
 // Without DataForSEO this is a SAMPLE, not a full index. The UI says so.
 
 const CACHE_DAYS = 7;
-const MAX_VERIFY = 90;
+const MAX_VERIFY = 120;
 const MAX_BATCH = 15;
-const MAX_REQUESTS = 22; // web searches per run (Serper)
-const MAX_REQUESTS_DDG = 14; // DuckDuckGo is slower and stricter, so fewer
+const MAX_REQUESTS = 30; // web searches per run (Serper)
+const MAX_REQUESTS_DDG = 16; // DuckDuckGo is slower and stricter, so fewer
 const MAX_PER_DOMAIN = 2;
 const MAX_PER_WIKI = 10;
 const MAX_BYTES = 1_500_000;
@@ -493,30 +493,60 @@ async function discover(host: string, root: string, label: string) {
       })
     : Promise.resolve(null);
 
+  // The three search groups below do not depend on each other, so they run AT THE SAME TIME (before: one after the other = slow).
   // 1. plain mention search, then "dig": exclude the domains found last, so the engine must show new ones
-  await search(`${root} -site:${root}`);
-  for (let round = 0; round < 4; round++) {
-    const exclude = [...found]
-      .slice(-8)
-      .map((d) => `-site:${d}`)
-      .join(" ");
-    if ((await search(`${root} -site:${root} ${exclude}`)) <= 0) break;
+  const digChain = async () => {
+    await search(`${root} -site:${root}`);
+    for (let round = 0; round < 4; round++) {
+      const exclude = [...found]
+        .slice(-8)
+        .map((d) => `-site:${d}`)
+        .join(" ");
+      if ((await search(`${root} -site:${root} ${exclude}`)) <= 0) break;
+    }
+  };
+  // 2. places where links usually live: forums, blogs, code + trusted TLDs (edu / gov / org) + the site's OWN country (a .co.uk shop
+  //    is mostly linked from .co.uk / .org.uk / .ac.uk sites)
+  const parts = root.split(".");
+  const last = parts[parts.length - 1];
+  const second = parts[parts.length - 2] ?? "";
+  const ownTlds: string[] = [];
+  if (last.length === 2) {
+    if (parts.length >= 3 && /^(co|com|org|net|gov|ac|edu)$/.test(second))
+      ownTlds.push(`${second}.${last}`, `org.${last}`, `ac.${last}`, `gov.${last}`);
+    else ownTlds.push(last);
   }
-  // 2. places where links usually live: forums, blogs, code + trusted TLDs (edu / gov / org)
   const sweeps = [
     ...PLATFORMS.map((p) => `${root} site:${p}`),
     ...TLD_SWEEPS.map((t) => `${root} site:${t}`),
+    ...[...new Set(ownTlds)]
+      .filter((t) => !TLD_SWEEPS.includes(t))
+      .slice(0, 4)
+      .map((t) => `${root} site:${t}`),
   ];
-  for (let i = 0; i < sweeps.length; i += 4)
-    await Promise.all(sweeps.slice(i, i + 4).map(search));
-  // 3. brand name searches (many sites write the brand, not the web address)
+  const sweepAll = async () => {
+    for (let i = 0; i < sweeps.length; i += 6)
+      await Promise.all(sweeps.slice(i, i + 6).map(search));
+  };
+  // 3. brand name searches (many sites write the brand, not the web address) + other kinds of pages that link out
   const brandQs = new Set([
     `${brand} -site:${root}`,
     `${label} -site:${root}`,
     `${brand} review -site:${root}`,
     `${label} alternatives -site:${root}`,
+    `${root} blog -site:${root}`,
+    `${root} directory -site:${root}`,
+    `${root} resources -site:${root}`,
+    `${root} recommended -site:${root}`,
+    `intext:${root} -site:${root}`,
+    `${label} best -site:${root}`,
+    `${label} news -site:${root}`,
   ]);
-  await Promise.all([...brandQs].map(search));
+  await Promise.all([
+    digChain(),
+    sweepAll(),
+    Promise.all([...brandQs].map(search)),
+  ]);
 
   const [free, idx] = await Promise.all([
     freeSources,
@@ -601,7 +631,7 @@ async function verifyBatch(body: any, root: string, label: string) {
         : [],
     }));
   const cpu = { ms: 0 };
-  const checked = await pool(list, 5, (c) => verify(c, root, brand, t0, cpu));
+  const checked = await pool(list, 8, (c) => verify(c, root, brand, t0, cpu));
   const auth = await authority([
     ...new Set(list.map((c) => siteKey(c.domain))),
   ]);

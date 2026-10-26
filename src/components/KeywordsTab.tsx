@@ -78,8 +78,15 @@ export default function KeywordsTab({ d }: { d: any }) {
   }
 
   const world = scope === "world";
+  const bankCount = table.filter((k) => k.source === "bank").length;
+  const liveCount = table.length - bankCount;
   const shown = table.filter(
-    (k) => filter === "all" || k.action === filter || k.intent === filter,
+    (k) =>
+      filter === "all" ||
+      k.action === filter ||
+      k.intent === filter ||
+      (filter === "From data bank" && k.source === "bank") ||
+      (filter === "Checked now" && k.source !== "bank"),
   );
   const winCount = table.filter(
     (k) => k.action === "Quick win" || k.action === "New content",
@@ -101,6 +108,7 @@ export default function KeywordsTab({ d }: { d: any }) {
     "Transactional",
     "Commercial",
     "Informational",
+    ...(bankCount > 0 ? ["Checked now", "From data bank"] : []),
   ];
 
   return (
@@ -223,6 +231,15 @@ export default function KeywordsTab({ d }: { d: any }) {
 
       {view === "keywords" && (
         <Card title="Keywords, ranked by opportunity">
+          {bankCount > 0 && (
+            <p className="mb-3 text-xs text-slate-500">
+              {`${liveCount} keywords were checked live on Google now. ${bankCount} more come from your data bank: keywords this site was already seen ranking for in earlier saved searches (no new Google call). Their position is the one saved at that time.`}
+              {(m.bankFilled ?? 0) > 0 &&
+                ` Search volume was created for ${m.bankFilled} of them in this run and saved for next time.`}
+              {(m.bankUnvolumed ?? 0) > 0 &&
+                ` ${m.bankUnvolumed} more known keywords still have no volume and are added on the next run.`}
+            </p>
+          )}
           <div className="mb-3 flex flex-wrap gap-1.5">
             {filters.map((f) => (
               <button
@@ -257,6 +274,14 @@ export default function KeywordsTab({ d }: { d: any }) {
                 >
                   <td className="td font-medium">
                     {k.keyword}
+                    {k.source === "bank" && (
+                      <span
+                        className="ml-2 align-middle"
+                        title={`Already in your data bank${k.lastSeen ? `, position saved ${new Date(k.lastSeen).toLocaleDateString()}` : ""}${k.trueVolume ? ", volume from Search Console" : ""}`}
+                      >
+                        <Badge tone="brand">data bank</Badge>
+                      </span>
+                    )}
                     {k.url && (
                       <div className="max-w-[240px] truncate text-xs font-normal text-slate-400">
                         {short(k.url)}

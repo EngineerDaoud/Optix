@@ -14,6 +14,7 @@ import {
 import { Download, Search } from "lucide-react";
 import { fn, supabase } from "../lib/supabase";
 import { useSite } from "../context/Site";
+import { useAuth } from "../context/Auth";
 import { Badge, ErrorNote, PageHeader, Spinner } from "../components/ui";
 import { Card, Stat, Table, Tabs } from "../components/viz";
 import PosSpark from "../components/PosSpark";
@@ -1747,6 +1748,7 @@ export default function KeywordLab() {
     [sites],
   );
   const initial = current ? hostOf(current.url) : (hosts[0] ?? "");
+  const { isAdmin } = useAuth();
   const [tab, setTab] = useState<
     "explore" | "bank" | "history" | "gap" | "databank"
   >("explore");
@@ -1764,7 +1766,8 @@ export default function KeywordLab() {
             { id: "bank", label: "My keyword bank" },
             { id: "history", label: "Rank history" },
             { id: "gap", label: "Link gap" },
-            { id: "databank", label: "Data bank" },
+            // how much data the tool has collected is for the admin only; normal users never see this tab
+            ...(isAdmin ? [{ id: "databank" as const, label: "Data bank" }] : []),
           ]}
           value={tab}
           onChange={setTab}
@@ -1774,7 +1777,7 @@ export default function KeywordLab() {
       {tab === "bank" && <Bank />}
       {tab === "history" && <History hosts={hosts} initialHost={initial} />}
       {tab === "gap" && <Gap hosts={hosts} initialHost={initial} />}
-      {tab === "databank" && <DataBank />}
+      {tab === "databank" && isAdmin && <DataBank />}
     </div>
   );
 }

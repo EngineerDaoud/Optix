@@ -164,7 +164,7 @@ export default function Layout() {
   const initial = (session?.user?.email ?? "U").slice(0, 1).toUpperCase();
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen min-h-[100dvh] flex-col">
       <header
         className="sticky top-0 z-40 border-b border-brand-100/80 bg-white/80 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95"
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
@@ -321,7 +321,7 @@ export default function Layout() {
       </header>
 
       <main
-        className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 sm:py-6"
+        className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-4 sm:px-5 sm:py-6"
         style={{
           paddingBottom: "max(1.5rem, env(safe-area-inset-bottom, 0px))",
         }}

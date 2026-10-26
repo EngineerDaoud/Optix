@@ -59,6 +59,7 @@ export async function fn<T = any>(
   name: string,
   body: object,
   signal?: AbortSignal,
+  retried = false,
 ): Promise<T> {
   const t0 = Date.now();
   const { data, error } = await supabase.functions.invoke(name, {
@@ -76,6 +77,9 @@ export async function fn<T = any>(
       /* body was not json */
     }
     const code = res?.status;
+    // the server ran out of time/memory on a big site: try once more automatically (saved Google results make the 2nd run lighter)
+    if (name === "research" && code === 546 && !retried && !signal?.aborted)
+      return fn<T>(name, body, signal, true);
     if (code === 546 || code === 502 || code === 504)
       msg = `The server stopped this request (status ${code}: out of time or memory). Press the button again.`;
     else if (msg.startsWith("Edge Function returned") && code)
