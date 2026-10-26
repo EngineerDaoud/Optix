@@ -764,7 +764,10 @@ export default function MyGoogleData({
 
   const connect = async () => {
     try {
-      const r = await fn("mygoogle", { action: "start" });
+      const r = await fn("mygoogle", {
+        action: "start",
+        return_to: window.location.origin,
+      });
       window.location.href = r.url;
     } catch (e) {
       setError((e as Error).message);

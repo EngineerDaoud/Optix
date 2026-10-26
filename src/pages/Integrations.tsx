@@ -125,6 +125,7 @@ export default function Integrations() {
       const r = await fn<{ url: string }>("google", {
         action: "start",
         website_id: current!.id,
+        return_to: window.location.origin,
       });
       window.location.href = r.url;
     });

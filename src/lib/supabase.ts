@@ -1,8 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+/** true when Vercel (or .env) has no Supabase settings: main.tsx then shows a clear message instead of a blank page */
+export const envMissing = !SUPABASE_URL || !SUPABASE_KEY;
+
 export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  SUPABASE_URL || "https://missing-env.invalid",
+  SUPABASE_KEY || "missing-env",
 );
 
 /* ---- activity log: every command a user runs is saved so the admin can see it ---- */

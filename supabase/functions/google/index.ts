@@ -35,9 +35,26 @@ async function sign(payload: string) {
   return b64(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-async function makeState(websiteId: string, userId: string) {
+
+/** where to send the browser back to after Google: the origin the user started from (signed inside state), else APP_URL */
+function cleanOrigin(v: unknown): string | null {
+  try {
+    const u = new URL(String(v));
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    const allow = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+      .split(",")
+      .map((s) => s.trim().replace(/\/$/, ""))
+      .filter(Boolean);
+    if (allow.length && !allow.includes(u.origin)) return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+async function makeState(websiteId: string, userId: string, ret?: string | null) {
   const payload = b64(
-    JSON.stringify({ w: websiteId, u: userId, t: Date.now() }),
+    JSON.stringify({ w: websiteId, u: userId, t: Date.now(), r: ret ?? null }),
   );
   return `${payload}.${await sign(payload)}`;
 }
@@ -49,7 +66,7 @@ async function readState(state: string) {
   const data = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
   if (Date.now() - data.t > 15 * 60 * 1000)
     throw new HttpError(400, "Connect link expired, try again");
-  return data as { w: string; u: string };
+  return data as { w: string; u: string; r?: string | null };
 }
 
 const redirect = (to: string) =>
@@ -57,7 +74,7 @@ const redirect = (to: string) =>
 
 Deno.serve(
   handle(async (req) => {
-    const appUrl = Deno.env.get("APP_URL") ?? "http://localhost:5173";
+    let appUrl = (Deno.env.get("APP_URL") ?? "http://localhost:5173").replace(/\/$/, "");
     const db = admin();
 
     // ---- OAuth callback (browser redirect from Google, no JWT) ----
@@ -66,11 +83,19 @@ Deno.serve(
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       if (url.searchParams.get("error") || !code || !state) {
+        if (state) {
+          try {
+            appUrl = cleanOrigin((await readState(state)).r) ?? appUrl;
+          } catch {
+            /* keep APP_URL */
+          }
+        }
         return redirect(
           `${appUrl}/integrations?google_error=${encodeURIComponent(url.searchParams.get("error") ?? "cancelled")}`,
         );
       }
-      const { w, u } = await readState(state);
+      const { w, u, r: ret } = await readState(state);
+      appUrl = cleanOrigin(ret) ?? appUrl;
       const r = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -117,7 +142,7 @@ Deno.serve(
         scope: SCOPES,
         access_type: "offline",
         prompt: "consent",
-        state: await makeState(site.id, user.id),
+        state: await makeState(site.id, user.id, cleanOrigin(body.return_to)),
       });
       return json({
         url: `https://accounts.google.com/o/oauth2/v2/auth?${qs}`,
