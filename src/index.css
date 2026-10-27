@@ -91,6 +91,73 @@
   animation: menuIn 0.14s ease both;
 }
 
+/* "your result is on the way" overlay: the rocket flies round in a circle, nose first */
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.rocket-orbit {
+  animation: orbit 9s linear infinite; /* slow, calm flight */
+}
+.rocket-nose {
+  rotate: 45deg; /* the logo points up-right; this makes the nose follow the circle */
+  animation: rocketBob 1.8s ease-in-out infinite alternate;
+}
+@keyframes rocketBob {
+  from {
+    scale: 1;
+  }
+  to {
+    scale: 1.12;
+  }
+}
+@keyframes glow {
+  from {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 0.9;
+    transform: scale(1.1);
+  }
+}
+.rocket-glow {
+  animation: glow 3s ease-in-out infinite alternate;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fadeIn 0.2s ease both;
+}
+@keyframes dotBlink {
+  0%,
+  20% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.15;
+  }
+}
+.loading-dots span {
+  animation: dotBlink 1.2s infinite;
+}
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;

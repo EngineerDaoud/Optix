@@ -1,5 +1,5 @@
 import { BRAND, SANOMADS_URL } from "../lib/brand";
-import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
   BarChart3,
@@ -24,6 +24,7 @@ import { useAuth } from "../context/Auth";
 import { useSite } from "../context/Site";
 import { Spinner } from "./ui";
 import Select from "./Select";
+import { resumeAnalysis, useAnalysis } from "../lib/analysisRun";
 
 export const nav = [
   {
@@ -85,6 +86,42 @@ const Logo = () => (
   </span>
 );
 
+// Small badge on every page except the Dashboard: the website check keeps running in the background,
+// this shows its progress and takes the user back to the result.
+function RunPill() {
+  const job = useAnalysis();
+  const { pathname } = useLocation();
+  if (!job || pathname.startsWith("/dashboard")) return null;
+  const host = job.params.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  const running = job.status === "running";
+  const text = running
+    ? `Analysing ${host}…`
+    : job.status === "done"
+      ? `Result for ${host} is ready`
+      : job.status === "error"
+        ? "The check failed"
+        : "The check was cancelled";
+  return (
+    <Link
+      to="/dashboard"
+      className="fade-in fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-sm shadow-panel dark:border-slate-700 dark:bg-slate-900"
+      style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
+    >
+      {running ? (
+        <Spinner className="h-5 w-5" />
+      ) : (
+        <img src="/favicon.png" alt="" className="h-6 w-6" />
+      )}
+      <span className="min-w-0">
+        <span className="block truncate font-semibold">{text}</span>
+        <span className="block max-w-[260px] truncate text-xs text-slate-500">
+          {running ? job.progress || "Working…" : "Click to open the Dashboard"}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
 export default function Layout() {
   const { sites, current, select, loaded } = useSite();
   const { session, isAdmin } = useAuth();
@@ -119,6 +156,10 @@ export default function Layout() {
   };
 
   useEffect(() => setMenu(false), [pathname]);
+  // a check that was running when the page was closed or reloaded continues here
+  useEffect(() => {
+    resumeAnalysis();
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(false);
     const onDown = (e: PointerEvent) => {
@@ -328,6 +369,7 @@ export default function Layout() {
       >
         <Outlet />
       </main>
+      <RunPill />
 
       <footer
         className="mx-auto w-full max-w-[1600px] px-3 sm:px-5"

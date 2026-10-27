@@ -23,9 +23,15 @@ import {
   Plus,
   RefreshCw,
   SlidersHorizontal,
-  X,
 } from "lucide-react";
 import { fn, supabase } from "../lib/supabase";
+import {
+  cancelAnalysis,
+  consumeAnalysis,
+  getJob,
+  startAnalysis,
+  useAnalysis,
+} from "../lib/analysisRun";
 import { useSite } from "../context/Site";
 import {
   countryTraffic,
@@ -36,6 +42,7 @@ import {
 } from "../lib/report";
 import { cleanReport } from "../lib/dedupe";
 import { exportReport, listSections, SectionInfo } from "../lib/exportreport";
+import AnalyzingOverlay from "../components/AnalyzingOverlay";
 import ExportDialog from "../components/ExportDialog";
 import { publicText } from "../lib/clean";
 import { flag } from "../lib/countries";
@@ -150,8 +157,9 @@ export default function Dashboard() {
   const reportRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const [dialog, setDialog] = useState<SectionInfo[] | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const [cancellable, setCancellable] = useState(false);
+  const job = useAnalysis(); // the running check lives outside this page, so it survives opening other pages
+  const running = job?.status === "running";
+  const busy = loading || running; // opening a saved report, or the background check
   const [notice, setNotice] = useState<string | null>(null);
   const [showAllPlan, setShowAllPlan] = useState(false);
   // store data + website score: loaded together with the website check, not after it
@@ -268,84 +276,45 @@ export default function Dashboard() {
   }, [data?.meta?.host]);
   useEffect(() => {
     loadSaved();
+    const j = getJob();
+    if (j) {
+      // a check is running (or just finished) while the user was on another page: show it again instead of the last saved report
+      setUrl(j.params.url);
+      setCountry(j.params.country);
+      setScope(j.params.scope === "country" ? "country" : "world");
+      setMaxPages(j.params.maxPages);
+      return;
+    }
     const last = localStorage.getItem("lastReport");
     if (last) open(last); /* eslint-disable-next-line */
   }, []);
+  // take the result of the background check as soon as it is ready (also if it finished while the user was on another page)
+  useEffect(() => {
+    if (!job || job.status === "running") return;
+    const j = job;
+    consumeAnalysis();
+    if (j.status === "done") {
+      show(j.result);
+      setUrl(j.params.url);
+      setBlRun({ id: Date.now(), force: j.cached ? false : j.params.force });
+      loadSaved();
+    } else if (j.status === "cancelled") setNotice("The check was cancelled.");
+    else if (j.status === "error") setError(j.error ?? "The check failed.");
+    /* eslint-disable-next-line */
+  }, [job]);
 
-  const crawlLabel = (p: any) =>
-    p.phase === "crawl"
-      ? `Crawling pages: ${p.crawled} done, ${p.queued} waiting${p.rendered ? `, ${p.rendered} opened in a browser (JavaScript sites)` : ""}…`
-      : `Checking links for broken pages: ${p.linksChecked} of ${p.linksTotal}…`;
-  const stepWithRetry = async (jobId: string, sig: AbortSignal) => {
-    let last: Error | null = null;
-    for (let i = 0; i < 3; i++) {
-      if (sig.aborted) throw new Error("cancelled");
-      try {
-        return await fn("crawl", { action: "step", job_id: jobId }, sig);
-      } catch (err) {
-        if (sig.aborted) throw err;
-        last = err as Error;
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
-    throw last!;
-  };
-  const cancelRun = () => abortRef.current?.abort();
+  const cancelRun = () => cancelAnalysis();
 
   // ONE button runs everything: crawl, speed, SEO issues, Google rankings, traffic by country, action plan.
+  // The work itself runs in lib/analysisRun.ts, so it keeps going when the user opens another page.
   const run = async (force: boolean, e?: FormEvent) => {
     e?.preventDefault();
     if (!url.trim()) return;
-    const ac = new AbortController();
-    abortRef.current = ac;
-    const sig = ac.signal;
-    setLoading(true);
     setError(null);
     setNotice(null);
     setProgress("");
-    setCancellable(true);
     loadStore(url, force); // runs next to the crawl, so it is ready when the report appears
-    try {
-      const body = { url, country, depth: 10, scope };
-      if (!force) {
-        setProgress("Looking for a recent saved report…");
-        const c = await fn("research", { ...body, cacheOnly: true }, sig);
-        if (!c.miss) {
-          show(c);
-          setBlRun({ id: Date.now(), force: false });
-          loadSaved();
-          setLoading(false);
-          setCancellable(false);
-          setProgress("");
-          return;
-        }
-      }
-      setProgress("Opening the website and reading its sitemap…");
-      const s = await fn("crawl", { action: "start", url, maxPages }, sig);
-      let p = s.progress;
-      while (!p.done) {
-        setProgress(crawlLabel(p));
-        p = (await stepWithRetry(s.job_id, sig)).progress;
-      }
-      setProgress(
-        "Checking speed and Google rankings, then analysing traffic by country and preparing the action plan…",
-      );
-      // fresh = the "Re-run with fresh data" button: skip the saved Google results and keyword numbers in the data bank as well
-      const r = await fn(
-        "research",
-        { ...body, force: true, fresh: force, job_id: s.job_id },
-        sig,
-      );
-      show(r);
-      setBlRun({ id: Date.now(), force });
-      loadSaved();
-    } catch (err) {
-      if (sig.aborted) setNotice("The check was cancelled.");
-      else setError((err as Error).message);
-    }
-    setProgress("");
-    setLoading(false);
-    setCancellable(false);
+    startAnalysis({ url, country, scope, maxPages, force });
   };
 
   // Refresh button inside every card: reload the newest saved check for this site from the database (no full re-crawl, no quota used).
@@ -697,7 +666,7 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <button
               className="btn"
-              disabled={loading || !!exporting}
+              disabled={busy || !!exporting}
               onClick={downloadAll}
               title="Download the full report as one PDF"
             >
@@ -721,7 +690,7 @@ export default function Dashboard() {
             )}
             <button
               className="btn-ghost"
-              disabled={loading}
+              disabled={busy}
               onClick={() => run(true)}
             >
               <RefreshCw className="h-4 w-4" /> Re-run with fresh data
@@ -740,7 +709,7 @@ export default function Dashboard() {
               placeholder="example.com or https://example.com"
               aria-label="Website address"
               value={url}
-              disabled={loading}
+              disabled={busy}
               onChange={(e) => {
                 setUrl(e.target.value);
                 if (!touched) setCountry(guessCountry(e.target.value));
@@ -755,10 +724,10 @@ export default function Dashboard() {
           >
             <SlidersHorizontal className="h-4 w-4" /> Options
           </button>
-          <button className="btn !py-2.5" disabled={loading || !url.trim()}>
-            {loading && <Spinner />} Analyze
+          <button className="btn !py-2.5" disabled={busy || !url.trim()}>
+            {busy && <Spinner />} Analyze
           </button>
-          {loading && cancellable && (
+          {busy && running && (
             <button
               type="button"
               className="btn-ghost !py-2.5"
@@ -822,7 +791,7 @@ export default function Dashboard() {
                 type="button"
                 key={s.id}
                 onClick={() => open(s.id)}
-                disabled={loading}
+                disabled={busy}
                 className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 font-medium transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
               >
                 {s.host}{" "}
@@ -839,7 +808,7 @@ export default function Dashboard() {
       </form>
 
       <ErrorNote message={error} />
-      {notice && !loading && (
+      {notice && !busy && (
         <div className="card flex items-center justify-between gap-3 text-sm text-slate-600 dark:text-slate-300">
           <span>{notice}</span>
           <button
@@ -851,26 +820,6 @@ export default function Dashboard() {
           </button>
         </div>
       )}
-      {loading && (
-        <div className="card flex flex-wrap items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-          <Spinner className="h-5 w-5" />{" "}
-          <span className="min-w-0 flex-1">
-            {progress || "Working…"}{" "}
-            <span className="text-slate-400">
-              Big sites take a few minutes. Keep this tab open.
-            </span>
-          </span>
-          {cancellable && (
-            <button
-              type="button"
-              className="btn-ghost !py-1.5"
-              onClick={cancelRun}
-            >
-              <X className="h-4 w-4" /> Cancel
-            </button>
-          )}
-        </div>
-      )}
       {dialog && (
         <ExportDialog
           sections={dialog}
@@ -879,7 +828,16 @@ export default function Dashboard() {
         />
       )}
 
-      {!d && !loading && (
+      {/* the results area: while a check runs, the loading panel sits on top of it (blurred), not over the whole screen */}
+      <div className={`relative ${busy ? "min-h-[520px]" : ""}`}>
+        {busy && (
+          <AnalyzingOverlay
+            progress={running ? job!.progress : progress}
+            percent={running ? job!.percent : undefined}
+            onCancel={running ? cancelRun : undefined}
+          />
+        )}
+      {!d && !busy && (
         <div className="card grid place-items-center gap-3 py-16 text-center">
           <div className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-900/40">
             <Globe className="h-7 w-7" />
@@ -1273,7 +1231,21 @@ export default function Dashboard() {
                             title={x.key}
                           >
                             <td className="td !pl-0 max-w-[240px] truncate">
-                              {pgTab === "pages" ? shortPath(x.key) : x.key}
+                              {pgTab === "pages" && /^https?:\/\//i.test(x.key) ? (
+                                <a
+                                  href={x.key}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-brand-600 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-brand-400"
+                                  title={`Open ${x.key}`}
+                                >
+                                  {shortPath(x.key)}
+                                </a>
+                              ) : pgTab === "pages" ? (
+                                shortPath(x.key)
+                              ) : (
+                                x.key
+                              )}
                             </td>
                             <td className="td font-semibold">
                               {compact(x.clicks)}
@@ -1304,7 +1276,15 @@ export default function Dashboard() {
                             .join(", ")}
                         >
                           <td className="td !pl-0 max-w-[260px] truncate">
-                            {shortPath(p.url)}
+                            <a
+                              href={p.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-brand-600 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-brand-400"
+                              title={`Open ${p.url}`}
+                            >
+                              {shortPath(p.url)}
+                            </a>
                           </td>
                           <td
                             className="td font-bold"
@@ -1334,6 +1314,7 @@ export default function Dashboard() {
           </p>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -28,6 +28,7 @@ export type Page = {
   title: string;
   description: string;
   h1s: string[];
+  h2s?: string[]; // text of the H2/H3 headings (used to find the site's real keywords)
   h2: number;
   h3: number;
   words: number;
@@ -48,6 +49,8 @@ export type Page = {
   images: ImgStats;
   flags: Flags;
   text: string;
+  anchors?: string[]; // visible text of internal links (menu, categories, product names)
+  metaKeywords?: string;
 };
 
 export const norm = (u: string) => u.replace(/#.*$/, "").replace(/\/$/, "");
@@ -187,6 +190,29 @@ export function analysePage(
     ),
   );
   const links = extractLinks(html, finalUrl, isInternal);
+  const h2s = [...html.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi)]
+    .map((m) => clean(m[1]))
+    .filter((t) => t && t.length <= 120)
+    .slice(0, 12);
+  const anchors = [
+    ...new Set(
+      [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)]
+        .map((m) => {
+          const href = m[1].match(/\bhref=[\"']([^\"']*)[\"']/i)?.[1] ?? "";
+          if (!href || href.startsWith("#") || /^(mailto:|tel:|javascript:)/i.test(href))
+            return "";
+          try {
+            const x = new URL(href, finalUrl);
+            if (!isInternal(x.hostname.toLowerCase().replace(/^www\./, "")))
+              return "";
+          } catch {
+            return "";
+          }
+          return clean(m[2]);
+        })
+        .filter((t) => t.length >= 4 && t.length <= 70),
+    ),
+  ].slice(0, 25);
   return {
     url: finalUrl,
     status,
@@ -194,6 +220,7 @@ export function analysePage(
     title,
     description: meta(html, "description").trim(),
     h1s,
+    h2s,
     h2: (html.match(/<h2[\s>]/gi) ?? []).length,
     h3: (html.match(/<h3[\s>]/gi) ?? []).length,
     words: body ? body.split(" ").filter(Boolean).length : 0,
@@ -215,7 +242,9 @@ export function analysePage(
     externalLinks: links.externalLinks,
     images: extractImages(html),
     flags: pageFlags(html),
-    text: body.slice(0, 1500),
+    text: body.slice(0, 3000),
+    anchors,
+    metaKeywords: meta(html, "keywords").trim().slice(0, 300),
   };
 }
 

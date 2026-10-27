@@ -42,6 +42,56 @@ const short = (u: string) => {
     return u;
   }
 };
+
+// A keyword that opens the page of the site it belongs to (the page that ranks in Google, or else the page where the keyword is written).
+const kwTarget = (k: any): { href: string; ranking: boolean } | null =>
+  k?.url
+    ? { href: k.url, ranking: true }
+    : k?.sitePage
+      ? { href: k.sitePage, ranking: false }
+      : null;
+function KwLink({ k }: { k: any }) {
+  const t = kwTarget(k);
+  if (!t) return <>{k.keyword}</>;
+  return (
+    <a
+      href={t.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-brand-600 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-brand-400"
+      title={
+        t.ranking
+          ? `Opens the page that ranks for this keyword: ${t.href}`
+          : `Opens the page where this keyword is written: ${t.href}`
+      }
+    >
+      {k.keyword}
+    </a>
+  );
+}
+function KwPage({ k, shortFn }: { k: any; shortFn: (u: string) => string }) {
+  const t = kwTarget(k);
+  if (!t)
+    return (
+      <div className="text-xs font-normal text-slate-400">
+        Not written on this site
+      </div>
+    );
+  return (
+    <div className="max-w-[260px] truncate text-xs font-normal text-slate-500">
+      {t.ranking ? "Ranks on " : "Used on "}
+      <a
+        href={t.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-dotted hover:decoration-solid"
+      >
+        {shortFn(t.href)}
+      </a>
+      {!t.ranking && k.sitePages > 1 ? ` (+${k.sitePages - 1} more pages)` : ""}
+    </div>
+  );
+}
 const compact = (n: number) =>
   n >= 1e6
     ? `${(n / 1e6).toFixed(1)}M`
@@ -273,7 +323,7 @@ export default function KeywordsTab({ d }: { d: any }) {
                   className="border-t border-slate-100 dark:border-slate-800"
                 >
                   <td className="td font-medium">
-                    {k.keyword}
+                    <KwLink k={k} />
                     {k.source === "bank" && (
                       <span
                         className="ml-2 align-middle"
@@ -282,11 +332,7 @@ export default function KeywordsTab({ d }: { d: any }) {
                         <Badge tone="brand">data bank</Badge>
                       </span>
                     )}
-                    {k.url && (
-                      <div className="max-w-[240px] truncate text-xs font-normal text-slate-400">
-                        {short(k.url)}
-                      </div>
-                    )}
+                    <KwPage k={k} shortFn={short} />
                   </td>
                   <td className="td">
                     {k.position ? (

@@ -51,6 +51,17 @@ import {
 } from "../_shared/analyse.ts";
 import { recordUniverse } from "../_shared/universe.ts";
 import {
+  buildCorpus,
+  extractSiteKeywords,
+  groundPhrase,
+  groundSeeds,
+  surfaceForms,
+  type Corpus,
+  type Evidence,
+  type Mode,
+  type SiteKeyword,
+} from "../_shared/grounding.ts";
+import {
   bankTableRows,
   loadBankForDomain,
   type BankAttach,
@@ -548,7 +559,12 @@ function mixSeeds(a: string[], b: string[], max = 25): string[] {
 
 // ---------- 3. understand the site (AI, only from crawled text) ----------
 
-async function understand(site: string, pages: Page[], want = 40) {
+async function understand(
+  site: string,
+  pages: Page[],
+  want = 40,
+  candidates: string[] = [],
+) {
   const input = JSON.stringify({
     site,
     pages: diversePages(pages, 12).map((p) => ({
@@ -556,14 +572,16 @@ async function understand(site: string, pages: Page[], want = 40) {
       title: p.title,
       description: p.description,
       h1: p.h1s.slice(0, 2),
-      text: p.text.slice(0, 600),
+      h2: (p.h2s ?? []).slice(0, 6),
+      text: p.text.slice(0, 900),
     })),
+    phrases_found_on_site: candidates.slice(0, 70),
   });
   const system = `You analyse a website using ONLY the page data provided. Return ONLY a JSON object, no markdown:
 {"topic": "one short sentence", "audience": "one short sentence", "language": "two-letter code such as en", "offerings": ["main products, services or content types"], "seed_keywords": ["..."]}
 Rules:
-- seed_keywords: up to ${want} phrases of 2 to 5 words that a real customer would type into Google to find this kind of business, product or content. Spread them over EVERY product category, service and topic the pages show (not only the main one), and mix the search types: product or service names, buying phrases (buy, price, for sale, near me, best), comparisons, and problems or questions people search before buying. Use the site's own subject and wording. Mix SPECIFIC phrases that match the real product, category or collection names on the pages (include models, sizes, voltages, part types and brands that are sold) with SHORT category terms of 2 to 3 words (for example "custom polos" or "embroidered aprons"), because short category terms carry most of a shop's real search traffic. About half of the phrases must be specific, and at least a quarter must be short category terms. Skip only very broad one-word terms. Do not add phrases for products the pages do not show. Never use utility pages as keywords: about, contact, privacy, terms, cart, checkout, login, account, password reset, shipping or returns policy, FAQ.
-- No keywords that are only the brand name. Do not invent facts. If the data is too thin, return fewer keywords.`;
+- seed_keywords: up to ${want} phrases of 2 to 5 words. EVERY phrase must be written on the website, word for word, in the page data you were given (titles, H1/H2 headings, descriptions, link text or body text). \"phrases_found_on_site\" is a list of phrases already found on the site: prefer choosing from it, and you may add other phrases only if you can see the same words in a row in the page data. Always give the FULL phrase as the site writes it (for example \"custom embroidered polo shirts\", not just \"polo shirts\", when the site always writes the longer phrase). Spread the phrases over EVERY product category, service and topic the pages show, not only the main one. Do NOT add search words that the site does not write (buy, price, cheap, best, near me, online, for sale) and do NOT invent phrases, models or products the pages do not show. Never use utility pages as keywords: about, contact, privacy, terms, cart, checkout, login, account, password reset, shipping or returns policy, FAQ.
+- No keywords that are only the brand name. Do not invent facts. If the data is too thin, return fewer keywords. Fewer exact phrases are better than many guessed ones.`;
   let lastErr = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -1322,18 +1340,69 @@ Deno.serve(
     let profile: Awaited<ReturnType<typeof understand>> | null = null;
     let ranks: Awaited<ReturnType<typeof checkRanks>> | null = null;
     let aiOk = true;
+    // SITE-GROUNDED KEYWORDS: every keyword must be written on the crawled pages. Phrases are extracted from titles, headings,
+    // descriptions, link text and body text, and anything the AI (or an old run, or Google) adds is checked against that text.
+    // keywordMode "strict" (default) = the words must be written in a row on the site; "relaxed" also accepts search words
+    // such as buy / price / best / near me added to a phrase the site does write.
+    const kwMode: Mode = body.keywordMode === "relaxed" ? "relaxed" : "strict";
+    const siteBrand = brandName(homeHtml, finalHost);
+    const corpus: Corpus = buildCorpus(pages, {
+      brand: [siteBrand, finalHost.split(".")[0]],
+      skipUrl: isUtilityUrl,
+    });
+    const siteKw: SiteKeyword[] = extractSiteKeywords(corpus, { limit: 120 });
+    const siteForms = surfaceForms(
+      pages,
+      siteKw.map((k) => k.keyword),
+    );
+    const siteList = siteKw.map((k) => siteForms.get(k.keyword) ?? k.keyword);
+    const keywordEvidence: Record<string, Evidence> = {};
+    // phrases taken from the site are on the site by definition: no need to check them again
+    siteKw.forEach((k, i) => {
+      keywordEvidence[siteList[i]] = {
+        mode: "exact",
+        fields: k.fields,
+        pages: k.pages,
+        url: k.url,
+      };
+    });
+    const notOnSite: string[] = [];
+    const onlyOnSite = (list: string[]) => {
+      const g = groundSeeds(list, corpus, siteKw, kwMode);
+      notOnSite.push(...g.removed);
+      const forms = surfaceForms(pages, g.kept);
+      return g.kept.map((k) => {
+        const shown = forms.get(k) ?? k;
+        keywordEvidence[shown] = g.evidence[k];
+        return shown;
+      });
+    };
     try {
-      profile = await understand(finalUrl, pages, Math.min(50, kwLimit));
-      // titles and headings of real pages are phrases the site is built around: put them next to the AI ideas
+      profile = await understand(
+        finalUrl,
+        pages,
+        Math.min(50, kwLimit),
+        siteList,
+      );
+      // phrases taken straight from the site come first, then the AI's choices that really are on the site
       profile.seeds = mixSeeds(
-        fallbackSeeds(pages, finalHost),
-        profile.seeds,
+        siteList,
+        onlyOnSite(profile.seeds),
         kwLimit + 15,
       );
+      if (notOnSite.length)
+        notes.push(
+          `${notOnSite.length} AI keyword(s) were removed because they are not written on the site (for example: ${notOnSite.slice(0, 5).join(", ")}).`,
+        );
+      if (!profile.seeds.length) throw new Error("no keywords found on the site");
     } catch (e) {
       aiOk = false;
       notes.push((e as Error).message);
-      const seeds = fallbackSeeds(pages, finalHost);
+      const seeds = mixSeeds(
+        siteList,
+        onlyOnSite(fallbackSeeds(pages, finalHost)),
+        kwLimit + 15,
+      );
       if (seeds.length) {
         profile = {
           topic: "",
@@ -1368,8 +1437,16 @@ Deno.serve(
         )
           .filter((r) => r?.keyword && !r.error)
           .map((r) => String(r.keyword).toLowerCase());
-        if (prevList.length >= 3) {
-          const keep = [...new Set(prevList)].slice(0, kwLimit);
+        const stillOnSite = [...new Set(prevList)].filter(
+          (k) => groundPhrase(k, corpus, kwMode).mode !== "none",
+        );
+        const goneCount = new Set(prevList).size - stillOnSite.length;
+        if (goneCount > 0)
+          notes.push(
+            `${goneCount} keyword(s) from the last run were dropped because they are not written on the site.`,
+          );
+        if (stillOnSite.length >= 3) {
+          const keep = stillOnSite.slice(0, kwLimit);
           const extra = (profile?.seeds ?? []).filter((k) => !keep.includes(k));
           const seeds = [...keep, ...extra].slice(0, kwLimit + 15);
           profile = profile
@@ -1403,7 +1480,10 @@ Deno.serve(
         );
         const add = more
           .filter(
-            (x) => x.keyword.split(" ").length >= 2 && !isJunkPhrase(x.keyword),
+            (x) =>
+              x.keyword.split(" ").length >= 2 &&
+              !isJunkPhrase(x.keyword) &&
+              groundPhrase(x.keyword, corpus, kwMode).mode !== "none",
           )
           .slice(0, need)
           .map((x) => x.keyword);
@@ -2012,6 +2092,27 @@ Deno.serve(
       notes.push(`Authority could not be built: ${(e as Error).message}`);
     }
 
+    // PAGE FOR EVERY KEYWORD: the page that ranks in Google for it, or else the page of this site where the keyword is written.
+    // The screen turns the keyword into a link to that page.
+    const pageFor = (kw: string) => {
+      const ev = keywordEvidence[kw] ?? groundPhrase(kw, corpus, kwMode);
+      return ev.mode === "none"
+        ? null
+        : { url: ev.url, foundIn: ev.fields.slice(0, 3), pages: ev.pages };
+    };
+    for (const row of keywordTable as Record<string, unknown>[]) {
+      const f = pageFor(String(row.keyword));
+      row.sitePage = f?.url ?? null;
+      row.foundIn = f?.foundIn ?? [];
+      row.sitePages = f?.pages ?? 0;
+    }
+    for (const r of (ranks?.rankings ?? []) as any[]) {
+      const f = pageFor(String(r.keyword));
+      r.sitePage = f?.url ?? null;
+      r.foundIn = f?.foundIn ?? [];
+      r.sitePages = f?.pages ?? 0;
+    }
+
     const result = {
       meta: {
         v: 3,
@@ -2062,6 +2163,15 @@ Deno.serve(
       brokenLinks,
       images,
       terms,
+      siteKeywords: siteKw.slice(0, 60).map((k) => ({
+        keyword: siteForms.get(k.keyword) ?? k.keyword,
+        score: k.score,
+        pages: k.pages,
+        foundIn: k.fields,
+        url: k.url,
+      })),
+      keywordEvidence,
+      keywordMode: kwMode,
       rankings: ranks?.rankings ?? [],
       competitors: ranks?.competitors ?? [],
       platforms: ranks?.platforms ?? [],

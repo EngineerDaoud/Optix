@@ -20,6 +20,7 @@ import {
   scoreColor,
 } from "../components/viz";
 import KeywordsTab from "../components/KeywordsTab";
+import AnalyzingOverlay from "../components/AnalyzingOverlay";
 
 const COUNTRIES: [string, string][] = [
   ["gb", "United Kingdom"],
@@ -93,6 +94,56 @@ type Tab =
 
 const sec = (ms: number | null | undefined) =>
   ms == null ? "–" : `${(ms / 1000).toFixed(1)} s`;
+
+// A keyword that opens the page of the site it belongs to (the page that ranks in Google, or else the page where the keyword is written).
+const kwTarget = (k: any): { href: string; ranking: boolean } | null =>
+  k?.url
+    ? { href: k.url, ranking: true }
+    : k?.sitePage
+      ? { href: k.sitePage, ranking: false }
+      : null;
+function KwLink({ k }: { k: any }) {
+  const t = kwTarget(k);
+  if (!t) return <>{k.keyword}</>;
+  return (
+    <a
+      href={t.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-brand-600 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-brand-400"
+      title={
+        t.ranking
+          ? `Opens the page that ranks for this keyword: ${t.href}`
+          : `Opens the page where this keyword is written: ${t.href}`
+      }
+    >
+      {k.keyword}
+    </a>
+  );
+}
+function KwPage({ k, shortFn }: { k: any; shortFn: (u: string) => string }) {
+  const t = kwTarget(k);
+  if (!t)
+    return (
+      <div className="text-xs font-normal text-slate-400">
+        Not written on this site
+      </div>
+    );
+  return (
+    <div className="max-w-[260px] truncate text-xs font-normal text-slate-500">
+      {t.ranking ? "Ranks on " : "Used on "}
+      <a
+        href={t.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-dotted hover:decoration-solid"
+      >
+        {shortFn(t.href)}
+      </a>
+      {!t.ranking && k.sitePages > 1 ? ` (+${k.sitePages - 1} more pages)` : ""}
+    </div>
+  );
+}
 const short = (u: string) => {
   try {
     const x = new URL(u);
@@ -441,12 +492,7 @@ export default function Research() {
         </button>
       </form>
       <ErrorNote message={error} />
-      {loading && (
-        <div className="card mb-4 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-          <Spinner /> {progress || "Working…"} Big sites take a few minutes.
-          Keep this tab open.
-        </div>
-      )}
+      {loading && <AnalyzingOverlay progress={progress} />}
 
       {d && (
         <>
@@ -1041,7 +1087,9 @@ export default function Research() {
                           key={r.keyword}
                           className="border-t border-slate-100 dark:border-slate-800"
                         >
-                          <td className="td font-medium">{r.keyword}</td>
+                          <td className="td font-medium">
+                            <KwLink k={r} />
+                          </td>
                           <td className="td">
                             {r.error ? (
                               <Badge tone="red">error</Badge>
@@ -1070,8 +1118,8 @@ export default function Research() {
                               </>
                             );
                           })()}
-                          <td className="td max-w-[320px] truncate text-slate-500">
-                            {r.url ? short(r.url) : "–"}
+                          <td className="td max-w-[320px] text-slate-500">
+                            <KwPage k={r} shortFn={short} />
                           </td>
                         </tr>
                       ))}

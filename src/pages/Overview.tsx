@@ -1,3 +1,4 @@
+import AnalyzingOverlay from "../components/AnalyzingOverlay";
 import { FormEvent, ReactNode, useState } from "react";
 import { fn } from "../lib/supabase";
 import {
@@ -76,9 +77,7 @@ export default function Overview() {
       </form>
       <ErrorNote message={error} />
       {loading && (
-        <p className="text-sm text-slate-500">
-          Checking the site. This can take up to a minute.
-        </p>
+        <AnalyzingOverlay progress="Checking the site. This can take up to a minute." />
       )}
 
       {data && (
