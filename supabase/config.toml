@@ -27,3 +27,5 @@ verify_jwt = false
 verify_jwt = false
 [functions.mygoogle]
 verify_jwt = false
+[functions.serperaccount]
+verify_jwt = false

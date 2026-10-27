@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, ChevronDown, Globe, RefreshCw, XCircle } from "lucide-react";
-import { supabase } from "../lib/supabase";
+import { fn, supabase } from "../lib/supabase";
 import { useAuth } from "../context/Auth";
 import { findCountry, flag } from "../lib/countries";
 import { Badge, Empty, ErrorNote, PageHeader, Spinner } from "../components/ui";
@@ -165,6 +165,45 @@ function Stat({ title, value, sub }: { title: string; value: string | number; su
       <p className="num mt-1 text-2xl font-semibold">{value}</p>
       {sub && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{sub}</p>}
     </div>
+  );
+}
+
+type SerperInfo = { balance: number | null; rateLimit: number | null; checkedAt: string };
+
+/** How many Serper search credits are left on the app's key (read live from Serper, admins only). */
+function SerperPanel({ info, error }: { info: SerperInfo | null; error: string | null }) {
+  const left = info?.balance ?? null;
+  const low = left !== null && left < 500;
+  return (
+    <section className="mb-6">
+      <h2 className="mb-2 text-sm font-semibold">Serper API key</h2>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
+        <div className={`card ${low ? "!border-red-300 dark:!border-red-500/50" : ""}`}>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Credits left</p>
+          {error ? (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{error}</p>
+          ) : info === null ? (
+            <div className="mt-2"><Spinner className="h-5 w-5" /></div>
+          ) : left === null ? (
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Serper did not send a balance. Check serper.dev/dashboard.
+            </p>
+          ) : (
+            <>
+              <p className={`num mt-1 text-2xl font-semibold ${low ? "text-red-600 dark:text-red-400" : ""}`}>
+                {left.toLocaleString()}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                {low ? "running low: top up soon" : "1 search = 1 credit"}
+              </p>
+            </>
+          )}
+        </div>
+        {info?.rateLimit != null && (
+          <Stat title="Speed limit" value={info.rateLimit} sub="searches per second" />
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -426,6 +465,8 @@ export default function Admin() {
   const { isAdmin } = useAuth();
   const [users, setUsers] = useState<UserRow[] | null>(null);
   const [bank, setBank] = useState<Bank | null>(null);
+  const [serper, setSerper] = useState<SerperInfo | null>(null);
+  const [serperErr, setSerperErr] = useState<string | null>(null);
   const [picked, setPicked] = useState<UserRow | null>(null);
   const [sites, setSites] = useState<SiteRow[] | null>(null);
   const [site, setSite] = useState<SiteRow | null>(null);
@@ -434,14 +475,25 @@ export default function Admin() {
   const [logs, setLogs] = useState<LogRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const loadSerper = useCallback(async () => {
+    setSerperErr(null);
+    try {
+      setSerper(await fn<SerperInfo>("serperaccount", {}));
+    } catch (e) {
+      setSerper(null);
+      setSerperErr((e as Error).message);
+    }
+  }, []);
+
   const loadUsers = useCallback(async () => {
     setError(null);
+    loadSerper(); // runs next to the other loads, its own error never blocks the page
     const [u, b] = await Promise.all([supabase.rpc("admin_user_usage"), supabase.rpc("admin_bank_overview")]);
     if (u.error) setError(u.error.message);
     else setUsers((u.data ?? []) as UserRow[]);
     if (b.error) setError((e) => e ?? `Data bank: ${b.error.message}`);
     else setBank(b.data as Bank);
-  }, []);
+  }, [loadSerper]);
 
   const loadUser = useCallback(async (email: string) => {
     setSites(null);
@@ -537,6 +589,7 @@ export default function Admin() {
           <div className="grid h-40 place-items-center"><Spinner className="h-6 w-6" /></div>
         ) : (
           <>
+          <SerperPanel info={serper} error={serperErr} />
           {bank && <BankPanel bank={bank} />}
           <h2 className="mb-2 text-sm font-semibold">Users</h2>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
