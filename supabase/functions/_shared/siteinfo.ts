@@ -157,6 +157,9 @@ export async function psi(
   url: string,
   strategy: "mobile" | "desktop" = "mobile",
 ) {
+  // Desktop only feeds the Speed card (score + Core Web Vitals), which needs the performance category alone.
+  // Asking for all four made big sites (Shopify...) time out, so desktop asks for performance only.
+  const perfOnly = strategy === "desktop";
   const key =
     Deno.env
       .get("PAGESPEED_API_KEY")
@@ -169,7 +172,9 @@ export async function psi(
     return `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${qs}`;
   };
   // PageSpeed can take 40 to 90 seconds on heavy sites. Try all 4 categories first; if that times out or is busy, ask for two lighter halves in parallel.
-  const ALL = ["performance", "seo", "accessibility", "best-practices"];
+  const ALL = perfOnly
+    ? ["performance"]
+    : ["performance", "seo", "accessibility", "best-practices"];
   const call = async (cats: string[], ms: number) => {
     const r = await get(build(cats), ms);
     const body = await r.json();
@@ -191,51 +196,64 @@ export async function psi(
       ? "PageSpeed took too long for this site (it timed out twice). Press Re-run, or test the page at pagespeed.web.dev."
       : m;
   };
-  // 1) all four categories in one request
   let fatal = false;
-  try {
-    const a = await call(ALL, 50000);
-    if (a.ok) j = a.body;
-    else {
-      noteErr(a.status, a.body);
-      fatal = a.status === 400 || a.status === 403;
-    } // bad key or unreachable page: retrying will not help
-    if (!j && !fatal) await new Promise((r) => setTimeout(r, 1500)); // a busy answer (429 / 5xx): short pause before the retry
-  } catch (e) {
-    lastErr = timeoutMsg(e);
-  }
-  if (fatal) throw new Error(lastErr);
-  // 2) it timed out or was busy: ask for two lighter requests in parallel. PERFORMANCE alone goes first on its own, because that is the
-  //    Speed score and the Core Web Vitals; the other three categories come in the second request. If only one answers, its scores are still shown.
-  if (!j) {
-    const [p1, p2] = await Promise.allSettled([
-      call(["performance"], 38000),
-      call(["seo", "accessibility", "best-practices"], 38000),
-    ]);
-    const ok1 = p1.status === "fulfilled" && p1.value.ok ? p1.value.body : null;
-    const ok2 = p2.status === "fulfilled" && p2.value.ok ? p2.value.body : null;
-    if (ok1 && ok2) {
-      j = ok1;
+  const onTry = (r: { ok: boolean; status: number; body: any }) => {
+    if (r.ok) return r.body;
+    noteErr(r.status, r.body);
+    if (r.status === 400 || r.status === 403) fatal = true; // bad key or unreachable page: retrying will not help
+    return null;
+  };
+  if (perfOnly) {
+    // desktop: the performance category alone. One try, then one longer try (the second answer is often much faster)
+    for (let i = 0; i < 2 && !j && !fatal; i++) {
+      try {
+        j = onTry(await call(ALL, i === 0 ? 50000 : 45000));
+      } catch (e) {
+        lastErr = timeoutMsg(e);
+      }
+      if (!j && !fatal && i === 0) await new Promise((r) => setTimeout(r, 1500));
+    }
+  } else {
+    // mobile (slowest test, heavy sites often time out): PERFORMANCE alone is what the Speed score and the Core Web Vitals need,
+    // so it gets its own request (two tries). The other three categories run at the same time in a second request, so one slow
+    // category can no longer lose the whole result. If only one of the two answers, its scores are still shown.
+    const OTHERS = ["seo", "accessibility", "best-practices"];
+    const perf = async () => {
+      let out: any = null;
+      for (let i = 0; i < 2 && !out && !fatal; i++) {
+        try {
+          out = onTry(await call(["performance"], 45000));
+        } catch (e) {
+          lastErr = timeoutMsg(e);
+        }
+        if (!out && !fatal && i === 0) await new Promise((r) => setTimeout(r, 1500));
+      }
+      return out;
+    };
+    const others = async () => {
+      try {
+        const r = await call(OTHERS, 88000);
+        return r.ok ? r.body : null;
+      } catch {
+        return null; // these three are nice to have: never fail the run because of them
+      }
+    };
+    const [okPerf, okOthers] = await Promise.all([perf(), others()]);
+    if (okPerf && okOthers) {
+      j = okPerf;
       j.lighthouseResult.categories = {
-        ...ok2.lighthouseResult.categories,
-        ...ok1.lighthouseResult.categories,
+        ...okOthers.lighthouseResult.categories,
+        ...okPerf.lighthouseResult.categories,
       };
       j.lighthouseResult.audits = {
-        ...ok2.lighthouseResult.audits,
-        ...ok1.lighthouseResult.audits,
+        ...okOthers.lighthouseResult.audits,
+        ...okPerf.lighthouseResult.audits,
       };
-    } else if (ok1 || ok2) {
-      j = ok1 ?? ok2;
     } else {
-      const bad = [p1, p2].find(
-        (p) => p.status === "fulfilled" && !p.value.ok,
-      ) as
-        | PromiseFulfilledResult<{ ok: boolean; status: number; body: any }>
-        | undefined;
-      if (bad) noteErr(bad.value.status, bad.value.body);
-      else if (p1.status === "rejected") lastErr = timeoutMsg(p1.reason);
+      j = okPerf ?? okOthers;
     }
   }
+  if (fatal && !j) throw new Error(lastErr);
   if (!j) throw new Error(lastErr);
   const lh = j.lighthouseResult;
   // a category that was not tested (e.g. the retry only asked for some) is null, shown as a dash, never as a fake 0

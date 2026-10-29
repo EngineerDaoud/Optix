@@ -14,7 +14,12 @@ import { renderEnabled } from "../_shared/render.ts";
 //   phase "crawl": fetch + analyse pages, add every internal link it finds to the queue (up to max_pages)
 //   phase "links": check the status of every other internal link and of external links (HEAD, then GET if blocked)
 
-const BATCH = 12; // pages per round (keeps CPU time per request low)
+const BATCH = 8; // pages per round (keeps CPU time per request low)
+// Edge functions are stopped after 2 s of CPU time (status 546, "CPU Time exceeded"). Waiting for websites is free, but
+// reading the HTML of big pages (Shopify pages are often 500 KB+) is not, and it adds up over every round of one request.
+// So one request does only a few rounds and the browser simply calls "step" again (a step is safe to repeat).
+const MAX_PAGE_ROUNDS = 1; // page rounds per request
+const MAX_LINK_ROUNDS = 3; // link-check rounds per request (status checks need very little CPU)
 const LINK_BATCH = 40;
 const STEP_MS = 60_000; // stop a step after this long and let the browser call again
 const MAX_RENDER = 60; // JavaScript renders per crawl (they are slow and cost credits)
@@ -364,6 +369,8 @@ Deno.serve(
       let renderedNow = job.rendered;
       let skipped = job.skipped;
 
+      let pageRounds = 0;
+      let linkRounds = 0;
       let pageConc = 6; // lowered automatically when the website starts answering 429
       let linkConc = 10;
       while (Date.now() - t0 < STEP_MS && job.phase !== "done") {
@@ -472,6 +479,7 @@ Deno.serve(
               updated_at: new Date().toISOString(),
             })
             .eq("id", job.id);
+          if (++pageRounds >= MAX_PAGE_ROUNDS) break; // CPU budget of this request is used: the browser calls step again
         } else {
           const { data: batch } = await db
             .from("crawl_pages")
@@ -515,6 +523,7 @@ Deno.serve(
             .upsert(rows, { onConflict: "job_id,url" });
           if (error)
             throw new HttpError(500, `Crawl database error: ${error.message}`);
+          if (++linkRounds >= MAX_LINK_ROUNDS) break;
         }
       }
       return json({

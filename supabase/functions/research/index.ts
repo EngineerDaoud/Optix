@@ -1346,7 +1346,24 @@ Deno.serve(
     // such as buy / price / best / near me added to a phrase the site does write.
     const kwMode: Mode = body.keywordMode === "relaxed" ? "relaxed" : "strict";
     const siteBrand = brandName(homeHtml, finalHost);
-    const corpus: Corpus = buildCorpus(pages, {
+    // The link lists (up to 300 + 100 per page) were only needed for the broken-link and link totals above: free them now,
+    // so a 300-page site does not keep tens of MB in memory while the keyword work and the AI calls run (status 546).
+    // (the home page keeps its lists: the checklist reads its links)
+    for (let i = 1; i < pages.length; i++) {
+      pages[i].internalUrls = [];
+      pages[i].externalLinks = [];
+    }
+    // On big sites the keyword extraction is the CPU-heavy part, so after the first 120 pages (home, menu and top pages come
+    // first) each page only contributes a shorter body text and fewer link texts. Titles and headings are always kept in full.
+    const corpusPages: Page[] =
+      pages.length > 120
+        ? pages.map((p, i) =>
+            i < 120
+              ? p
+              : { ...p, text: p.text.slice(0, 1200), anchors: (p.anchors ?? []).slice(0, 40) },
+          )
+        : pages;
+    const corpus: Corpus = buildCorpus(corpusPages, {
       brand: [siteBrand, finalHost.split(".")[0]],
       skipUrl: isUtilityUrl,
     });
@@ -1596,6 +1613,13 @@ Deno.serve(
       } catch {
         /* no earlier run: the normal "press Re-run" message stays */
       }
+    }
+    // The desktop test only asks Google for the performance category (it is much faster). SEO, accessibility and best practices
+    // are almost the same on desktop and mobile, so the empty rings of the desktop view show the mobile numbers.
+    if (speed && speedDesktop?.scores) {
+      for (const k of ["seo", "accessibility", "bestPractices"] as const)
+        if (speedDesktop.scores[k] == null && speed.scores?.[k] != null)
+          speedDesktop.scores[k] = speed.scores[k];
     }
     const field = val(fieldR, "Real-user speed") ?? speed?.field ?? null;
     const trancoRank = val(rankR, "Tranco rank");

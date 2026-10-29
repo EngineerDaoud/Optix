@@ -793,6 +793,8 @@ export default function CassieBoard({
   const channelTitle = "Traffic by Channel";
 
   const trendRows = trendFor(history, pTrend);
+  // how many dates of the trend have a saved check: with 1 date a line cannot be drawn, so dots + a note are shown instead
+  const trendPoints = trendRows.filter((r: any) => r.A != null).length;
   const historyOk = (history?.length ?? 0) >= 2;
   const rankSeries: number[] = (history ?? []).map((h: any) =>
     Number(h.ranked ?? 0),
@@ -1172,6 +1174,8 @@ export default function CassieBoard({
                         stroke={C.green}
                         strokeWidth={2}
                         fill="url(#gA)"
+                        connectNulls
+                        dot={trendPoints <= 3 ? { r: 4, fill: C.green } : false}
                       />
                       <Area
                         dataKey="B"
@@ -1180,10 +1184,18 @@ export default function CassieBoard({
                         stroke={C.blue}
                         strokeWidth={2}
                         fill="url(#gB)"
+                        connectNulls
+                        dot={trendPoints <= 3 ? { r: 4, fill: C.blue } : false}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
+              )}
+              {trendPoints === 1 && (
+                <p className="mt-1 text-center text-[11px] text-slate-400">
+                  Only one day of saved checks so far, so the graph shows a single point. The line appears as more
+                  daily checks are saved.
+                </p>
               )}
             </Box>
           )}
@@ -1200,6 +1212,8 @@ export default function CassieBoard({
               />
               {flow.length === 0 ? (
                 <NoData text="No saved checks in this period yet." />
+              ) : flow.every((f: any) => !f.v) ? (
+                <NoData text="No keywords were gained or lost between the saved checks in this period. Bars appear here when the number of ranking keywords changes from one check to the next." />
               ) : (
                 <div className="mt-2 h-48">
                   <ResponsiveContainer>
