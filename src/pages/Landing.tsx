@@ -482,7 +482,7 @@ export default function Landing() {
         <section
           id="home"
           aria-labelledby="hero-title"
-          className="relative overflow-hidden rounded-3xl"
+          className="hero-glass relative overflow-hidden rounded-3xl"
           style={{ background: "radial-gradient(70% 45% at 50% 0%, #ffffff 0%, rgba(255,255,255,0) 70%), linear-gradient(180deg,#cdbfff 0%, #e3dbff 50%, #f3efff 100%)" }}
         >
           {/* clouds */}
@@ -706,7 +706,7 @@ export default function Landing() {
       </main>
 
       {/* ============ Footer ============ */}
-      <footer className="mx-auto max-w-6xl px-5 pt-12">
+      <footer className="landing-footer mx-auto mb-4 mt-12 w-[calc(100%-1.5rem)] max-w-6xl rounded-3xl border border-transparent px-6 pt-10 sm:px-10">
         <div className="grid gap-10 md:grid-cols-4">
           <div className="md:col-span-2">
             <Logo />

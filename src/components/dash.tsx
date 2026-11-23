@@ -1,4 +1,5 @@
 import { ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { scoreColor } from "./viz";
 
@@ -85,13 +86,14 @@ export function useTip() {
     t.style.left = `${Math.max(pad, Math.min(left, vw - tw - pad))}px`;
     t.style.top = `${Math.max(pad, Math.min(top, vh - th - pad))}px`;
   }, [tip]);
-  const node = tip && (
+  const node = tip && createPortal(
     <div
       ref={el}
       className="pointer-events-none fixed left-0 top-0 z-[120] w-56 max-w-[calc(100vw-16px)] rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-pop dark:border-slate-700 dark:bg-slate-800"
     >
       {tip.content}
-    </div>
+    </div>,
+    document.body,
   );
   return { ref, onMove, hide, node };
 }

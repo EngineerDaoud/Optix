@@ -21,8 +21,8 @@ export default {
       },
       borderRadius: { card: "16px" },
       boxShadow: {
-        panel: "0 1px 3px rgba(76,45,200,.06), 0 8px 24px -12px rgba(76,45,200,.10)",
-        pop: "0 20px 50px -12px rgba(76,45,200,.28)",
+        panel: "inset 0 1px 0 rgba(255,255,255,.95), 0 10px 34px -10px rgba(76,45,200,.22)",
+        pop: "inset 0 1px 0 rgba(255,255,255,.95), 0 24px 60px -14px rgba(76,45,200,.40)",
       },
     },
   },

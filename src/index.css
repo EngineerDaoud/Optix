@@ -7,17 +7,12 @@
     -webkit-text-size-adjust: 100%;
   }
   body {
-    @apply min-h-screen overflow-x-hidden bg-page font-sans text-[14px] text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-100;
+    @apply min-h-screen overflow-x-hidden font-sans text-[14px] text-slate-800 antialiased dark:text-slate-100;
   }
   img,
   svg,
   video {
     max-width: 100%;
-  }
-  /* soft lavender glow at the top of every page (light mode only) */
-  html:not(.dark) body {
-    background-image: linear-gradient(180deg, #e6dfff 0%, rgba(246, 244, 255, 0) 340px);
-    background-repeat: no-repeat;
   }
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-brand-500;
@@ -26,16 +21,16 @@
 
 @layer components {
   .card {
-    @apply rounded-card border border-line bg-white p-5 shadow-panel dark:border-slate-800 dark:bg-slate-900;
+    @apply rounded-card border border-line p-5 shadow-panel;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(108,71,255,0.6)] transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-brand-50 disabled:opacity-50 dark:border-slate-700 dark:bg-transparent dark:text-slate-200 dark:hover:bg-slate-800;
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line px-4 py-2 text-sm font-medium text-slate-700 transition disabled:opacity-50 dark:text-slate-200;
   }
   .input {
-    @apply w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 dark:border-slate-700 dark:bg-slate-900;
+    @apply w-full rounded-xl border border-line px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15;
   }
   .th {
     @apply px-3 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400;
@@ -62,6 +57,347 @@
   .card table {
     @apply w-full;
   }
+}
+
+
+/* =====================================================================
+   GLASS THEME  (frosted glass over a soft colourful backdrop)
+   Everything below only changes colours / blur, never layout.
+   ===================================================================== */
+:root {
+  --g-bg: rgba(255, 255, 255, 0.6);
+  --g-bg-strong: rgba(255, 255, 255, 0.9);
+  --g-bg-soft: rgba(255, 255, 255, 0.4);
+  --g-edge: rgba(255, 255, 255, 0.9);
+  --g-line: rgba(108, 71, 255, 0.16);
+  --g-field: rgba(255, 255, 255, 0.72);
+  --g-blur: blur(18px) saturate(170%);
+  --g-blur-strong: blur(26px) saturate(190%);
+  --g-track: rgba(99, 80, 190, 0.12);
+}
+html.dark {
+  --g-bg: rgba(20, 27, 60, 0.55);
+  --g-bg-strong: rgba(13, 18, 42, 0.92);
+  --g-bg-soft: rgba(255, 255, 255, 0.07);
+  --g-edge: rgba(255, 255, 255, 0.16);
+  --g-line: rgba(255, 255, 255, 0.14);
+  --g-field: rgba(255, 255, 255, 0.08);
+  --g-track: rgba(255, 255, 255, 0.1);
+}
+
+/* ---- colourful backdrop that stays still while the page scrolls ---- */
+html {
+  background-color: #e6dcff; /* one light purple, nothing else */
+}
+html.dark {
+  background-color: #1a1238;
+}
+body {
+  background: transparent !important;
+  position: relative;
+}
+/* no coloured corners / blobs: the backdrop is a single flat purple */
+body::before,
+body::after {
+  content: none;
+}
+
+/* ---- main glass panels ---- */
+html:not(.dark) .card,
+html:not(.dark) .bg-white,
+html:not(.dark) .bg-white\/70,
+html:not(.dark) .bg-white\/80,
+html:not(.dark) .bg-white\/90,
+html:not(.dark) .bg-\[\#f4f4f8\],
+html:not(.dark) .bg-\[\#fafaff\],
+html:not(.dark) .bg-\[\#faf8ff\],
+html.dark .card,
+html.dark [class*="dark:bg-slate-900"],
+html.dark [class*="dark:bg-slate-950"] {
+  background-color: var(--g-bg);
+  -webkit-backdrop-filter: var(--g-blur);
+  backdrop-filter: var(--g-blur);
+  border-color: var(--g-edge);
+}
+/* the "inner" boxes inside a panel: translucent only, no second blur */
+html:not(.dark) .bg-slate-50,
+html:not(.dark) .bg-slate-50\/60 {
+  background-color: var(--g-bg-soft);
+}
+html:not(.dark) .bg-slate-100 {
+  background-color: var(--g-track);
+}
+html:not(.dark) .bg-brand-50,
+html:not(.dark) .bg-brand-50\/50,
+html:not(.dark) .bg-brand-50\/60,
+html:not(.dark) .bg-brand-50\/70 {
+  background-color: rgba(108, 71, 255, 0.11);
+}
+html.dark [class*="dark:bg-slate-800"] {
+  background-color: var(--g-bg-soft);
+  border-color: var(--g-line);
+}
+/* no blur inside something that is already blurred (faster and cleaner) */
+html:not(.dark) .card .bg-white,
+html:not(.dark) .bg-white .bg-white,
+html:not(.dark) .card [class*="bg-white/"],
+html.dark .card [class*="dark:bg-slate-900"],
+html.dark [class*="dark:bg-slate-900"] [class*="dark:bg-slate-900"] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.dark) .card .bg-white,
+html:not(.dark) .bg-white .bg-white {
+  background-color: rgba(255, 255, 255, 0.5);
+}
+html.dark .card [class*="dark:bg-slate-900"],
+html.dark [class*="dark:bg-slate-900"] [class*="dark:bg-slate-900"] {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- things that float over content get a stronger fill so text stays crisp ---- */
+html:not(.dark) .bg-white.shadow-pop,
+html:not(.dark) .bg-white.shadow-lg,
+html:not(.dark) .bg-white.shadow-2xl,
+html:not(.dark) thead.bg-white,
+html:not(.dark) .bg-white.sticky,
+html.dark [class*="dark:bg-slate-900"].shadow-pop,
+html.dark [class*="dark:bg-slate-900"].shadow-lg,
+html.dark [class*="dark:bg-slate-900"].shadow-2xl,
+html.dark [class*="dark:bg-slate-800"].shadow-pop,
+html.dark thead[class*="dark:bg-slate-900"] {
+  background-color: var(--g-bg-strong);
+  -webkit-backdrop-filter: var(--g-blur-strong);
+  backdrop-filter: var(--g-blur-strong);
+}
+html:not(.dark) .card .bg-white.shadow-pop,
+html:not(.dark) .card thead.bg-white {
+  background-color: var(--g-bg-strong);
+}
+html.dark .card thead[class*="dark:bg-slate-900"] {
+  background-color: var(--g-bg-strong);
+}
+
+/* ---- header + footer ---- */
+html:not(.dark) header.sticky,
+html.dark header.sticky {
+  background-color: var(--g-bg) !important;
+  -webkit-backdrop-filter: var(--g-blur-strong);
+  backdrop-filter: var(--g-blur-strong);
+  border-color: var(--g-edge) !important;
+  box-shadow: 0 8px 30px -14px rgba(76, 45, 200, 0.3);
+}
+html:not(.dark) footer > div.backdrop-blur,
+html.dark footer > div.backdrop-blur {
+  background-color: var(--g-bg) !important;
+  border-color: var(--g-edge) !important;
+  -webkit-backdrop-filter: var(--g-blur);
+  backdrop-filter: var(--g-blur);
+}
+
+/* landing page footer: one rounded glass card */
+html:not(.dark) .landing-footer {
+  background-color: var(--g-bg);
+  -webkit-backdrop-filter: var(--g-blur);
+  backdrop-filter: var(--g-blur);
+  border-color: var(--g-edge);
+  box-shadow: inset 0 1px 0 var(--g-edge), 0 20px 60px -26px rgba(76, 45, 200, 0.35);
+}
+
+/* ---- exceptions: small knobs, page roots, the report preview ---- */
+html:not(.dark) .bg-white[class*="h-2 w-2"],
+html:not(.dark) .bg-white[class*="h-3 w-3"],
+html:not(.dark) .bg-white[class*="h-4 w-4"] {
+  background-color: #fff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.dark) .bg-white.min-h-screen {
+  background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.dark) iframe.bg-white {
+  background-color: #fff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.dark) .blur-2xl {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.dark) .login-wrap,
+html:not(.dark) .hero-glass {
+  background: transparent !important;
+}
+html:not(.dark) .hero-glass {
+  background: rgba(255, 255, 255, 0.28) !important;
+  -webkit-backdrop-filter: var(--g-blur);
+  backdrop-filter: var(--g-blur);
+  box-shadow: inset 0 1px 0 var(--g-edge), 0 20px 60px -24px rgba(76, 45, 200, 0.35);
+  border: 1px solid var(--g-edge);
+}
+/* landing cards that fade to solid white now fade to glass */
+html:not(.dark) .to-white {
+  --tw-gradient-to: rgb(255 255 255 / 0.45) var(--tw-gradient-to-position) !important;
+}
+
+/* ---- lines / borders: visible but soft ---- */
+html:not(.dark) .border-line,
+html:not(.dark) .border-slate-100,
+html:not(.dark) .border-slate-200,
+html:not(.dark) .border-brand-100,
+html:not(.dark) .border-brand-100\/70,
+html:not(.dark) .border-brand-100\/80,
+html:not(.dark) .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html:not(.dark) .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--g-line);
+}
+html:not(.dark) .border-slate-300 {
+  border-color: rgba(108, 71, 255, 0.28);
+}
+html.dark .border-line,
+html.dark [class*="dark:border-slate-"] {
+  border-color: var(--g-line);
+}
+/* outer edge of a glass panel = bright rim, like the edge of real glass */
+html:not(.dark) .card,
+html.dark .card {
+  border-color: var(--g-edge);
+}
+html:not(.dark) .bg-white.border,
+html:not(.dark) .bg-white.border-slate-200,
+html:not(.dark) .bg-white.border-line,
+html:not(.dark) .bg-white.border-brand-100,
+html.dark [class*="dark:bg-slate-900"].border {
+  border-color: var(--g-edge);
+}
+/* ...but inputs and search boxes need an obvious outline */
+html:not(.dark) .bg-white.border-slate-300,
+html:not(.dark) input,
+html:not(.dark) select,
+html:not(.dark) textarea {
+  border-color: rgba(108, 71, 255, 0.28);
+}
+html.dark input,
+html.dark select,
+html.dark textarea {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+tbody tr {
+  transition: background-color 0.15s;
+}
+html:not(.dark) tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.45);
+}
+html.dark tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- text contrast on glass ---- */
+html:not(.dark) .text-slate-500 {
+  color: #46566d;
+}
+html:not(.dark) .text-slate-400 {
+  color: #5a6a82;
+}
+html:not(.dark) .text-slate-600 {
+  color: #334155;
+}
+html:not(.dark) ::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+html.dark .dark\:text-slate-400 {
+  color: #c3cde0;
+}
+html.dark ::placeholder {
+  color: #8d9bb5;
+  opacity: 1;
+}
+
+/* ---- shadows on glass in dark mode: no bright inset rim ---- */
+html.dark .shadow-panel {
+  --tw-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 12px 36px -12px rgba(0, 0, 0, 0.65);
+  --tw-shadow-colored: inset 0 1px 0 var(--tw-shadow-color), 0 12px 36px -12px var(--tw-shadow-color);
+}
+html.dark .shadow-pop {
+  --tw-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 26px 64px -14px rgba(0, 0, 0, 0.75);
+  --tw-shadow-colored: inset 0 1px 0 var(--tw-shadow-color), 0 26px 64px -14px var(--tw-shadow-color);
+}
+
+/* ---- buttons: glossy brand glass, ghost = clear glass ---- */
+.btn {
+  background: linear-gradient(135deg, #8a68ff 0%, #6c47ff 55%, #5b38ee 100%);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 10px 24px -10px rgba(108, 71, 255, 0.8);
+}
+.btn:hover:not(:disabled) {
+  filter: brightness(1.08) saturate(1.1);
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn-ghost {
+  background-color: var(--g-bg);
+  -webkit-backdrop-filter: var(--g-blur);
+  backdrop-filter: var(--g-blur);
+  border-color: var(--g-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+html:not(.dark) .btn-ghost {
+  border-color: rgba(108, 71, 255, 0.22);
+  color: #2b2358;
+}
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--g-bg-strong);
+}
+.input,
+html:not(.dark) .input,
+html.dark .input {
+  background-color: var(--g-field);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 2px rgba(60, 40, 140, 0.08);
+}
+html:not(.dark) .input {
+  border-color: rgba(108, 71, 255, 0.28);
+}
+
+/* hover state of menu rows and chips, in glass */
+html:not(.dark) .hover\:bg-brand-50:hover,
+html:not(.dark) .hover\:bg-brand-100:hover {
+  background-color: rgba(108, 71, 255, 0.14);
+}
+html:not(.dark) .hover\:bg-slate-50:hover,
+html:not(.dark) .hover\:bg-slate-100:hover {
+  background-color: rgba(255, 255, 255, 0.55);
+}
+html.dark .dark\:hover\:bg-slate-800:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* scrollbars */
+.scroll-thin {
+  scrollbar-color: rgba(108, 71, 255, 0.35) transparent;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(108, 71, 255, 0.35);
+}
+::selection {
+  background: rgba(108, 71, 255, 0.28);
+}
+
+/* browsers without backdrop-filter: make panels more solid so text stays readable */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --g-bg: rgba(255, 255, 255, 0.88); }
+  html.dark { --g-bg: rgba(18, 24, 52, 0.92); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::after { animation: none; }
 }
 
 @keyframes fadeUp {

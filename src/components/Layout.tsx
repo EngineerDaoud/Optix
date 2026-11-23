@@ -1,3 +1,4 @@
+// FILE: src/components/Layout.tsx   (REPLACE the old file)
 import { BRAND, SANOMADS_URL } from "../lib/brand";
 import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import {
@@ -130,6 +131,8 @@ export default function Layout() {
     document.documentElement.classList.contains("dark"),
   );
   const [menu, setMenu] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<number>();
   const wrap = useRef<HTMLDivElement>(null);
 
@@ -155,16 +158,26 @@ export default function Layout() {
     closeTimer.current = window.setTimeout(() => setMenu(false), 160);
   };
 
-  useEffect(() => setMenu(false), [pathname]);
+  useEffect(() => {
+    setMenu(false);
+    setProfileOpen(false);
+  }, [pathname]);
   // a check that was running when the page was closed or reloaded continues here
   useEffect(() => {
     resumeAnalysis();
   }, []);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenu(false);
+        setProfileOpen(false);
+      }
+    };
     const onDown = (e: PointerEvent) => {
       if (wrap.current && !wrap.current.contains(e.target as Node))
         setMenu(false);
+      if (profRef.current && !profRef.current.contains(e.target as Node))
+        setProfileOpen(false);
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onDown);
@@ -202,7 +215,8 @@ export default function Layout() {
   const active =
     nav.find((n) => pathname === n.to || pathname.startsWith(n.to + "/")) ??
     nav[0];
-  const initial = (session?.user?.email ?? "U").slice(0, 1).toUpperCase();
+  const email = session?.user?.email ?? "";
+  const initial = (email || "U").slice(0, 1).toUpperCase();
 
   return (
     <div className="flex min-h-screen min-h-[100dvh] flex-col">
@@ -215,87 +229,86 @@ export default function Layout() {
             <Logo />
           </NavLink>
 
-          {/* the one menu button: hover (or tap) shows every page */}
-          <div
-            ref={wrap}
-            className="relative"
-            onMouseEnter={openMenu}
-            onMouseLeave={closeMenu}
-          >
-            <button
-              type="button"
-              aria-haspopup="true"
-              aria-expanded={menu}
-              aria-controls="pages-menu"
-              onClick={() => setMenu((v) => !v)}
-              onFocus={openMenu}
-              className={`flex h-9 items-center gap-2 rounded-full px-4 text-sm font-semibold transition ${menu ? "bg-brand-600 text-white shadow-md" : "bg-brand-50 text-brand-700 hover:bg-brand-100 dark:bg-brand-900/40 dark:text-brand-200"}`}
+          <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">
+            {/* the one menu button: hover (or tap) shows every page */}
+            <div
+              ref={wrap}
+              className="relative shrink-0"
+              onMouseEnter={openMenu}
+              onMouseLeave={closeMenu}
             >
-              <LayoutGrid className="h-4 w-4" />
-              <span className="max-w-[110px] truncate sm:max-w-none">
-                {active.label}
-              </span>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform ${menu ? "rotate-180" : ""}`}
-              />
-            </button>
-
-            {menu && (
-              <div
-                id="pages-menu"
-                role="menu"
-                className="menu-in fixed inset-x-2 top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-50 lg:absolute lg:inset-x-auto lg:left-0 lg:top-full lg:w-[560px]"
+              <button
+                type="button"
+                aria-haspopup="true"
+                aria-expanded={menu}
+                aria-controls="pages-menu"
+                onClick={() => setMenu((v) => !v)}
+                onFocus={openMenu}
+                className="flex h-9 items-center gap-2 rounded-full bg-brand-600 px-4 text-sm font-semibold text-white shadow-md transition hover:bg-brand-700"
               >
-                {/* invisible bridge so the dropdown does not close while the cursor moves down */}
-                <div className="hidden h-5 lg:block" />
-                <div className="max-h-[calc(100vh-5rem)] overflow-auto rounded-2xl border border-brand-100 bg-white p-2.5 shadow-pop ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
-                  <div className="flex items-center justify-between px-3 pb-1 pt-2 text-xs font-medium text-slate-400 lg:hidden">
-                    Pages{" "}
-                    <button
-                      aria-label="Close menu"
-                      onClick={() => setMenu(false)}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="grid gap-1 sm:grid-cols-2">
-                    {nav.map(({ to, label, desc, icon: Icon }) => (
-                      <NavLink
-                        key={to}
-                        to={to}
-                        role="menuitem"
-                        className={({ isActive }) =>
-                          `flex items-center gap-3 rounded-xl px-3 py-2.5 transition ${isActive ? "bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow" : "hover:bg-brand-50 dark:hover:bg-slate-800"}`
-                        }
+                <LayoutGrid className="h-4 w-4" />
+                <span className="max-w-[110px] truncate sm:max-w-none">
+                  {active.label}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${menu ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {menu && (
+                <div
+                  id="pages-menu"
+                  role="menu"
+                  className="menu-in fixed inset-x-2 top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-50 lg:absolute lg:inset-x-auto lg:right-0 lg:top-full lg:w-[560px]"
+                >
+                  {/* invisible bridge so the dropdown does not close while the cursor moves down */}
+                  <div className="hidden h-5 lg:block" />
+                  <div className="max-h-[calc(100vh-5rem)] overflow-auto rounded-2xl border border-brand-100 bg-white p-2.5 shadow-pop ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
+                    <div className="flex items-center justify-between px-3 pb-1 pt-2 text-xs font-medium text-slate-400 lg:hidden">
+                      Pages{" "}
+                      <button
+                        aria-label="Close menu"
+                        onClick={() => setMenu(false)}
                       >
-                        {({ isActive }) => (
-                          <>
-                            <span
-                              className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${isActive ? "bg-white/20" : "bg-brand-50 text-brand-600 dark:bg-slate-800 dark:text-brand-300"}`}
-                            >
-                              <Icon className="h-[18px] w-[18px]" />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-medium">
-                                {label}
-                              </span>
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="grid gap-1 sm:grid-cols-2">
+                      {nav.map(({ to, label, desc, icon: Icon }) => (
+                        <NavLink
+                          key={to}
+                          to={to}
+                          role="menuitem"
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 rounded-xl px-3 py-2.5 transition ${isActive ? "bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow" : "hover:bg-brand-50 dark:hover:bg-slate-800"}`
+                          }
+                        >
+                          {({ isActive }) => (
+                            <>
                               <span
-                                className={`block truncate text-xs ${isActive ? "text-white/80" : "text-slate-500 dark:text-slate-400"}`}
+                                className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${isActive ? "bg-white/20" : "bg-brand-50 text-brand-600 dark:bg-slate-800 dark:text-brand-300"}`}
                               >
-                                {desc}
+                                <Icon className="h-[18px] w-[18px]" />
                               </span>
-                            </span>
-                          </>
-                        )}
-                      </NavLink>
-                    ))}
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium">
+                                  {label}
+                                </span>
+                                <span
+                                  className={`block truncate text-xs ${isActive ? "text-white/80" : "text-slate-500 dark:text-slate-400"}`}
+                                >
+                                  {desc}
+                                </span>
+                              </span>
+                            </>
+                          )}
+                        </NavLink>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-
-          <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">
+              )}
+            </div>
             {sites.length > 0 && (
               <Select
                 aria-label="Website"
@@ -330,33 +343,80 @@ export default function Layout() {
                 <span className="hidden sm:inline">Admin</span>
               </NavLink>
             )}
-            <button
-              onClick={toggleTheme}
-              aria-label="Toggle dark mode"
-              title={dark ? "Light mode" : "Dark mode"}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-500 transition hover:bg-brand-50 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              {dark ? (
-                <Sun className="h-[18px] w-[18px]" />
-              ) : (
-                <Moon className="h-[18px] w-[18px]" />
+            {/* profile: click the picture to see the account and sign out */}
+            <div ref={profRef} className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setProfileOpen((v) => !v)}
+                aria-haspopup="true"
+                aria-expanded={profileOpen}
+                aria-label="Account menu"
+                title={email}
+                className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-medium text-white shadow ring-2 ring-transparent transition hover:ring-brand-200 focus:outline-none focus-visible:ring-brand-300"
+              >
+                {initial}
+              </button>
+              {profileOpen && (
+                <div
+                  role="menu"
+                  className="menu-in absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-pop ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900"
+                >
+                  <div className="flex items-center gap-3 border-b border-brand-100/70 px-4 py-3 dark:border-slate-800">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-base font-medium text-white">
+                      {initial}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[11px] font-medium text-slate-400">
+                        Signed in as
+                      </span>
+                      <span
+                        className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100"
+                        title={email}
+                      >
+                        {email || "Unknown account"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 p-2">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={toggleTheme}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-brand-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        {dark ? (
+                          <Sun className="h-4 w-4" />
+                        ) : (
+                          <Moon className="h-4 w-4" />
+                        )}
+                        {dark ? "Light mode" : "Dark mode"}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`relative h-5 w-9 rounded-full transition ${dark ? "bg-brand-600" : "bg-slate-300"}`}
+                      >
+                        <span
+                          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${dark ? "left-[18px]" : "left-0.5"}`}
+                        />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        supabase.auth.signOut();
+                      }}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 active:bg-red-800"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign out
+                    </button>
+                  </div>
+                </div>
               )}
-            </button>
-            <button
-              onClick={() => supabase.auth.signOut()}
-              aria-label="Sign out"
-              title="Sign out"
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 text-sm font-medium text-red-600 transition hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/70 sm:px-3.5"
-            >
-              
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
-            <span
-              title={session?.user?.email ?? ""}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-medium text-white shadow"
-            >
-              {initial}
-            </span>
+            </div>
           </div>
         </div>
       </header>

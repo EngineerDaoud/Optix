@@ -114,7 +114,7 @@ export default function Login() {
 
   return (
     <div
-      className="flex min-h-screen flex-col px-4 py-4 md:h-[100dvh] md:overflow-hidden"
+      className="login-wrap flex min-h-screen flex-col px-4 py-4 md:h-[100dvh] md:overflow-hidden"
       style={{
         background:
           "radial-gradient(60% 40% at 50% 0%, #ffffff 0%, rgba(255,255,255,0) 70%), linear-gradient(180deg,#cdbfff 0%, #e3dbff 55%, #f3efff 100%)",

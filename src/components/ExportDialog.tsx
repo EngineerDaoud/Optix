@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Download, X } from "lucide-react";
 import type { SectionInfo } from "../lib/exportreport";
 
@@ -29,7 +30,7 @@ export default function ExportDialog({
     });
   const ids = sections.filter((s) => sel.has(s.id)).map((s) => s.id);
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
@@ -118,6 +119,7 @@ export default function ExportDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

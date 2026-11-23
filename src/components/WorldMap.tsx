@@ -42,8 +42,8 @@ const shapes = features.map((f: any) => {
 
 const lerp = (a: number[], b: number[], t: number) =>
   a.map((x, i) => Math.round(x + (b[i] - x) * t));
-const LOW = [217, 238, 245],
-  HIGH = [31, 138, 168];
+const LOW = [167, 139, 250],
+  HIGH = [76, 29, 200];
 const fill = (t: number) =>
   `rgb(${lerp(LOW, HIGH, Math.max(0, Math.min(1, t))).join(",")})`;
 
@@ -111,14 +111,14 @@ export default function WorldMap({
               <path
                 key={`${s.id}-${i}`}
                 d={s.d}
-                className={r ? "" : "fill-[#e5e9f2] dark:fill-slate-700"}
+                className={r ? "" : "fill-[#d8cff6] dark:fill-[#4b4a85]"}
                 style={
                   r
                     ? { fill: fill(0.18 + 0.82 * Math.sqrt(r.value / max)) }
                     : undefined
                 }
-                stroke={on ? "#3730a3" : "white"}
-                strokeWidth={on ? 1.6 : 0.5}
+                stroke={on ? "#1e1b4b" : "rgba(255,255,255,0.9)"}
+                strokeWidth={on ? 1.6 : 0.6}
                 opacity={current && !on && r ? 0.75 : 1}
                 onMouseMove={(e) => {
                   onMove(content(s.a2, s.name))(e);
