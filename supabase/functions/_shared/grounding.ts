@@ -13,6 +13,7 @@
 // Every keyword that survives can say exactly where it was found.
 
 import { isJunkPhrase } from "./keywords.ts";
+import { isNoisyToken, isRealKeyword } from "./keyquality.ts";
 
 // ---------------------------------------------------------------------------------------------------------
 // Types
@@ -357,6 +358,12 @@ export function extractSiteKeywords(
     const L = t.length;
     if (L < 1) return;
     const whole = WHOLE_LINE.has(seg.field);
+    // SPEC SOUP: a product title with two or more part codes / bare numbers ("102/406 E Bike Snow Sand 4.0 Fat Tyre",
+    // "XT90 Battery Connector MT60 Phase Connectors"). Pieces of such a line that contain a code or a number are cut-off
+    // fragments, not keywords, so only the plain-word pieces ("battery connector") are taken from it.
+    let noisy = 0;
+    for (const x of t) if (isNoisyToken(x)) noisy++;
+    const soup = noisy >= 2;
     // the whole line as a phrase (headings, titles, link text): "custom embroidered polo shirts"
     if (whole && L >= minN && L <= 6 && validPhrase(t)) touch(t, seg, true);
     const top = Math.min(maxN, L);
@@ -364,6 +371,7 @@ export function extractSiteKeywords(
       if (n === L && whole && L <= 6) continue; // already counted as whole line
       for (let i = 0; i + n <= L; i++) {
         const g = t.slice(i, i + n);
+        if (soup && g.some(isNoisyToken)) continue;
         if (validPhrase(g)) touch(g, seg, n === L);
       }
     }
@@ -399,7 +407,7 @@ export function extractSiteKeywords(
     if (nPages >= 6 && c.pages / nPages > 0.6) s *= 0.15;
     // longer, more specific phrases are worth slightly more than their parts
     s *= 1 + 0.12 * (c.toks.length - 2);
-    if (isJunkPhrase(key)) continue;
+    if (isJunkPhrase(key) || !isRealKeyword(key)) continue; // part-number soup, spec lists, loose numbers are not keywords
     if (isBrandy(corpus, key) || (c.toks.length <= 2 && containsBrand(corpus, key)))
       continue;
     const fields: Field[] = FIELD_ORDER.filter((f) => c.mask & FIELD_BIT[f]);
@@ -472,6 +480,80 @@ export function groundPhrase(
   return res;
 }
 
+/** true when one run of at most `maxWin` neighbouring words of `t` contains every word of `need` */
+function closeTogether(t: string[], need: string[], maxWin: number) {
+  const want = new Set(need);
+  const have = new Map<string, number>();
+  let got = 0,
+    l = 0;
+  for (let r = 0; r < t.length; r++) {
+    if (want.has(t[r])) {
+      const c = have.get(t[r]) ?? 0;
+      if (!c) got++;
+      have.set(t[r], c + 1);
+    }
+    while (got === want.size) {
+      if (r - l + 1 <= maxWin) return true;
+      if (want.has(t[l])) {
+        const c = (have.get(t[l]) ?? 1) - 1;
+        have.set(t[l], c);
+        if (!c) got--;
+      }
+      l++;
+    }
+  }
+  return false;
+}
+
+/**
+ * Spelling variants that differ only by a space or hyphen ("e-bike" / "ebike", "e-mail" / "email", "web site" / "website",
+ * "wi-fi" / "wifi") are the same phrase to a visitor. Tokens cannot match them, so as a last step the phrase is compared with
+ * the spaces removed. Runs only for phrases that found nothing, so it costs almost nothing.
+ */
+function squashedMatch(all: string[], corpus: Corpus, none: Evidence): Evidence {
+  const need = all.filter((t) => !GLUE.has(t));
+  const squash = (a: string[]) => a.join("");
+  const target = squash(all);
+  if (all.length < 2 || target.length < 6 || !need.length) return none;
+  const fields = new Map<Field, number>();
+  const pages = new Set<number>();
+  const bestAt = new Map<number, number>();
+  const limit = Math.min(corpus.segs.length, 40_000);
+  for (let i = 0; i < limit; i++) {
+    const seg = corpus.segs[i];
+    if (seg.toks.length > 60) continue;
+    // word-boundary safe: the squashed phrase must start at the start of a token and end at the end of a token
+    const toks = seg.toks;
+    let hit = false;
+    for (let a = 0; a < toks.length && !hit; a++) {
+      let acc = "";
+      for (let b = a; b < toks.length && acc.length < target.length; b++) {
+        acc += toks[b];
+        if (acc === target) {
+          hit = true;
+          break;
+        }
+        if (!target.startsWith(acc)) break;
+      }
+    }
+    if (!hit) continue;
+    fields.set(seg.field, (fields.get(seg.field) ?? 0) + 1);
+    pages.add(seg.page);
+    const w = FIELD_WEIGHT[seg.field];
+    if (w > (bestAt.get(seg.page) ?? 0)) bestAt.set(seg.page, w);
+  }
+  if (!pages.size) return none;
+  let best = -1,
+    bw = -1;
+  for (const [p, w] of bestAt) if (w > bw) ((bw = w), (best = p));
+  return {
+    mode: "exact",
+    fields: [...fields.keys()].sort((a, b) => FIELD_WEIGHT[b] - FIELD_WEIGHT[a]),
+    pages: pages.size,
+    url: best >= 0 ? corpus.pages[best] : null,
+  };
+}
+
 function groundUncached(
   all: string[],
   corpus: Corpus,
@@ -489,7 +571,7 @@ function groundUncached(
   let rare: number[] | undefined;
   for (const t of need) {
     const l = corpus.index.get(t);
-    if (!l) return none; // a word that appears nowhere on the site
+    if (!l) return squashedMatch(all, corpus, none); // a word that appears nowhere: maybe the site writes it joined or hyphenated differently
     if (!rare || l.length < rare.length) rare = l;
   }
   const exact = ` ${toks.join(" ")} `;
@@ -501,7 +583,15 @@ function groundUncached(
     const seg = corpus.segs[id];
     let hit: "exact" | "words" | null = null;
     if (seg.str.includes(exact)) hit = "exact";
-    else if (need.length >= 3 && need.every((t) => seg.str.includes(` ${t} `)))
+    // words in any order only count when they sit close together (at most 2 other words between them in a heading, title or link,
+    // 1 in running text).
+    // Before, 3+ words found anywhere in one long sentence were accepted, which let phrases like "e bike battery price" in
+    // that the site never writes.
+    else if (
+      need.length >= 3 &&
+      need.every((t) => seg.str.includes(` ${t} `)) &&
+      closeTogether(seg.toks, need, need.length + (seg.field === "body" ? 1 : 2))
+    )
       hit = "words";
     if (!hit) continue;
     if (hit === "exact") mode_ = "exact";
@@ -510,7 +600,7 @@ function groundUncached(
     const w = FIELD_WEIGHT[seg.field] * (hit === "exact" ? 2 : 1);
     if (w > (bestAt.get(seg.page) ?? 0)) bestAt.set(seg.page, w);
   }
-  if (!pages.size) return none;
+  if (!pages.size) return squashedMatch(all, corpus, none);
   // a 1-word phrase only counts when it is an exact heading/title/link hit
   let best = -1,
     bw = -1;

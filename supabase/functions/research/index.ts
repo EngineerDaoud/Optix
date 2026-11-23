@@ -39,6 +39,8 @@ import {
   type SerpDomain,
 } from "../_shared/keywords.ts";
 import { claude, setAiDeadline } from "../_shared/ai.ts";
+import { isRealKeyword } from "../_shared/keyquality.ts";
+import { judgeKeywords } from "../_shared/keyjudge.ts";
 import {
   analysePage,
   canon,
@@ -302,8 +304,80 @@ const CATALOG: Record<string, { label: string; severity: Sev; fix: string }> = {
     severity: "medium",
     fix: "Update or remove the links that point to pages returning errors.",
   },
+  "dup-h1": {
+    label: "Duplicate H1 heading",
+    severity: "low",
+    fix: "Give every page its own H1 that says what that page is about. Pages with the same H1 compete with each other and confuse Google about which one to rank.",
+  },
+  "canon-other": {
+    label: "Canonical points to a different page",
+    severity: "low",
+    fix: "Check that this is on purpose. A canonical that points to another URL tells Google to ignore this page and rank the other one. If this page should rank by itself, point its canonical to its own address.",
+  },
+  "canon-offsite": {
+    label: "Canonical points to another website",
+    severity: "high",
+    fix: "This page tells Google that another website owns the content, so it will not rank. Point the canonical to this page's own address unless the content really is a copy from that site.",
+  },
+  "no-schema": {
+    label: "No structured data (schema)",
+    severity: "low",
+    fix: "Add JSON-LD structured data that matches the page (Product, Article, FAQPage, LocalBusiness, BreadcrumbList). It helps Google understand the page and can unlock rich results such as prices, stars and FAQs.",
+  },
+  "few-links": {
+    label: "Dead-end page (almost no internal links)",
+    severity: "low",
+    fix: "Add links from this page to related pages, categories or the next step. Pages with almost no links out stop visitors and crawlers from moving deeper into the site.",
+  },
+  "url-long": {
+    label: "URL is very long",
+    severity: "low",
+    fix: "Use shorter, readable URLs (about 60 to 100 characters). Long URLs are cut in results, hard to share and often hide duplicate or filter pages.",
+  },
+  "url-messy": {
+    label: "URL has parameters, capitals or underscores",
+    severity: "low",
+    fix: "Prefer clean lowercase URLs with hyphens between words and no tracking or filter parameters. If the parameters are needed, make sure the clean URL is the canonical.",
+  },
+  "schema-incomplete": {
+    label: "Structured data has errors or missing fields",
+    severity: "low",
+    fix: "Fix the JSON-LD so Google can use it: give every Product a name, image and an offer with price, priceCurrency and availability; give every Article a headline, image, author and datePublished; make sure the JSON is valid. Test the page with Google's Rich Results Test.",
+  },
+  orphan: {
+    label: "Orphan page (no internal links point to it)",
+    severity: "medium",
+    fix: "Link to this page from a related page, a menu or a category page. Google finds and values pages through links, a page nobody links to is hard to discover and ranks poorly.",
+  },
+  "title-stuffed": {
+    label: "Title repeats the same word too often",
+    severity: "low",
+    fix: "Write the title as a natural phrase and use the main keyword once. Repeating a word 3 or more times looks spammy and can get the title rewritten by Google.",
+  },
+  "desc-same-title": {
+    label: "Meta description is the same as the title",
+    severity: "low",
+    fix: "Write a different description that adds a benefit or call to action (70 to 160 characters). Repeating the title wastes the space under your result.",
+  },
+  "no-h2": {
+    label: "Long page without sub-headings (H2)",
+    severity: "low",
+    fix: "Break long content into sections with descriptive H2 headings. It helps readers scan the page and helps Google understand its topics.",
+  },
+  "soft-404": {
+    label: "Looks like an error page but returns 200 (soft 404)",
+    severity: "high",
+    fix: "The page says \"not found\" but the server answers 200 OK, so Google may index an empty page. Return a real 404 (or 410) status, or 301-redirect the URL to the closest live page, and remove it from the sitemap and internal links.",
+  },
+  "no-lazy": {
+    label: "Images are not lazy-loaded",
+    severity: "low",
+    fix: "Add loading=\"lazy\" to images that are below the first screen. It makes the page load faster, which helps Core Web Vitals and rankings. Keep the main (first) image eager.",
+  },
 };
 const WEIGHT: Record<Sev, number> = { high: 25, medium: 10, low: 3 };
+const SOFT_404 =
+  /\b(?:page not found|error 404|404 error|404 not found|404 page|(?:this|that|the) page (?:does(?:n'?t| not)|did(?:n'?t| not)) exist|nothing found|oops!? (?:that|this) page)\b|^\s*(?:404|not found)\s*(?:[|\-–—:!]|$)|\|\s*(?:404|not found)\s*$/i;
 
 const isPlatform = (root: string) => PLATFORM_NAMES.has(root.split(".")[0]);
 
@@ -415,8 +489,11 @@ function pageIssues(
   ctx: {
     dupTitle: Set<string>;
     dupDesc: Set<string>;
+    dupH1: Set<string>;
     broken: Set<string>;
     brokenExt: Set<string>;
+    linkedTo?: Set<string> | null; // canonical URLs that at least one OTHER checked page links to (null = not every page was checked, so no orphan test)
+    homeUrl?: string;
   },
 ): PageIssue[] {
   const out: PageIssue[] = [];
@@ -440,25 +517,39 @@ function pageIssues(
     );
     return out;
   }
+  // A page the owner deliberately keeps out of Google (noindex) or a utility page (cart, login, privacy, contact...) is not
+  // meant to rank, so snippet / thin-content / schema advice on it is noise that only lowers the Health score unfairly.
+  const utility = isUtilityUrl(p.url);
+  const snippetMatters = !p.noindex;
+  const contentMatters = !p.noindex && !utility;
   if (p.noindex) add("noindex");
   if (!p.title) add("no-title");
-  else {
+  else if (snippetMatters) {
     if (p.title.length < 20) add("title-short", `${p.title.length} characters`);
     if (p.title.length > 65) add("title-long", `${p.title.length} characters`);
     if (ctx.dupTitle.has(p.title.trim().toLowerCase()))
       add("dup-title", p.title.slice(0, 80));
   }
-  if (!p.description) add("no-desc");
-  else {
-    if (p.description.length < 70)
-      add("desc-short", `${p.description.length} characters`);
-    if (p.description.length > 165)
-      add("desc-long", `${p.description.length} characters`);
-    if (ctx.dupDesc.has(p.description.trim().toLowerCase())) add("dup-desc");
+  if (snippetMatters) {
+    if (!p.description) add("no-desc");
+    else {
+      if (p.description.length < 70)
+        add("desc-short", `${p.description.length} characters`);
+      if (p.description.length > 165)
+        add("desc-long", `${p.description.length} characters`);
+      if (ctx.dupDesc.has(p.description.trim().toLowerCase())) add("dup-desc");
+    }
   }
-  if (p.h1s.length === 0) add("no-h1");
-  else if (p.h1s.length > 1) add("multi-h1", `${p.h1s.length} H1 headings`);
-  if (p.words < 300) add("thin", `${p.words} words`);
+  const h1c = p.h1n ?? p.h1s.length;
+  if (h1c === 0) add("no-h1");
+  else if (h1c > 1) add("multi-h1", `${h1c} H1 headings`);
+  if (contentMatters && p.words < 300) add("thin", `${p.words} words`);
+  // soft 404: the page itself says "not found" but the server still answered 200
+  if (
+    p.words < 250 &&
+    SOFT_404.test(`${p.title} | ${p.h1s?.[0] ?? ""}`.slice(0, 300))
+  )
+    add("soft-404", `Title / H1: ${(p.h1s?.[0] || p.title).slice(0, 80)}`);
   if (!p.canonical)
     add(
       "no-canonical",
@@ -478,7 +569,7 @@ function pageIssues(
       'No <meta name="viewport"> found in the <head> of this page',
     );
   if (!p.lang) add("no-lang", "The <html> tag has no lang attribute");
-  if (!p.og)
+  if (!p.og && snippetMatters)
     add(
       "no-og",
       p.ogMissing?.length
@@ -493,6 +584,68 @@ function pageIssues(
     ); // PageSpeed (Speed score) is the real speed test; this only catches clearly slow servers
   if (p.mixed > 0 && p.url.startsWith("https:"))
     add("mixed", `${p.mixed} http resources`);
+  // ---- extra checks (use only data already collected for the page, no extra requests) ----
+  const h1Text = (p.h1s?.[0] ?? "").trim().toLowerCase();
+  if (h1Text && ctx.dupH1.has(h1Text)) add("dup-h1", p.h1s[0].slice(0, 80));
+  if (p.canonical && p.canonical !== "yes") {
+    const here = canon(p.url);
+    const there = canon(p.canonical);
+    if (here && there && here.replace(/\/$/, "") !== there.replace(/\/$/, "")) {
+      const same = (u: string) => {
+        try {
+          return new URL(u).hostname.replace(/^www\./, "").toLowerCase();
+        } catch {
+          return "";
+        }
+      };
+      if (same(p.url) && same(p.canonical) && same(p.url) !== same(p.canonical))
+        add("canon-offsite", `Canonical: ${p.canonical.slice(0, 120)}`);
+      else add("canon-other", `Canonical: ${p.canonical.slice(0, 120)}`);
+    }
+  }
+  if (contentMatters && ctx.linkedTo) {
+    const me = canon(p.url);
+    const home = ctx.homeUrl ? canon(ctx.homeUrl) : null;
+    if (me && me !== home && !ctx.linkedTo.has(me)) add("orphan");
+  }
+  if (snippetMatters && p.title) {
+    const words = (p.title.toLowerCase().match(/[a-z0-9\u00c0-\uffff]{4,}/g) ?? []);
+    const seen = new Map<string, number>();
+    for (const w of words) seen.set(w, (seen.get(w) ?? 0) + 1);
+    const rep = [...seen.entries()].find(([, n]) => n >= 3);
+    if (rep) add("title-stuffed", `"${rep[0]}" appears ${rep[1]} times`);
+  }
+  if (
+    snippetMatters &&
+    p.title &&
+    p.description &&
+    p.title.trim().toLowerCase() === p.description.trim().toLowerCase()
+  )
+    add("desc-same-title");
+  if (contentMatters && !p.schema?.length) add("no-schema");
+  if (contentMatters && p.schemaIssues?.length)
+    add(
+      "schema-incomplete",
+      p.schemaIssues.slice(0, 4).join("; "),
+      p.schemaIssues.some((x) =>
+        /Invalid JSON-LD|no price|missing offers|no questions/.test(x),
+      )
+        ? "medium"
+        : undefined,
+    );
+  if (contentMatters && p.words > 600 && p.h2 === 0) add("no-h2", `${p.words} words, no H2`);
+  if (p.linkStats.internal < 3) add("few-links", `${p.linkStats.internal} internal link(s) on this page`);
+  if (p.url.length > 115) add("url-long", `${p.url.length} characters`);
+  try {
+    const u = new URL(p.url);
+    if (u.search || /[A-Z_]/.test(u.pathname))
+      add("url-messy", u.search ? "Has query parameters" : "Has capital letters or underscores");
+  } catch {
+    /* url unreadable: skip */
+  }
+  if (p.images.total > 6 && p.images.notLazy > Math.max(6, p.images.total * 0.8))
+    add("no-lazy", `${p.images.notLazy} of ${p.images.total} images`);
+
   const broken = p.internalUrls.filter((u) => ctx.broken.has(canon(u) ?? ""));
   if (broken.length)
     add(
@@ -514,8 +667,17 @@ function pageIssues(
   return out;
 }
 
+// A page that fails to load (404, 5xx, timeout) or is a soft 404 is worth nothing to Google. It used to lose only one "high"
+// issue (25 points) and still scored 75 / 100, so broken pages barely moved the site Health score.
 const pageScore = (issues: PageIssue[]) =>
-  Math.max(0, 100 - issues.reduce((s, i) => s + WEIGHT[i.severity], 0));
+  issues.some((i) => i.id === "status")
+    ? 0
+    : Math.max(
+        0,
+        100 -
+          issues.reduce((s, i) => s + WEIGHT[i.severity], 0) -
+          (issues.some((i) => i.id === "soft-404") ? 25 : 0),
+      );
 
 // Pick pages from DIFFERENT parts of the site (collections, products, blog...) one by one, so the keyword ideas cover what the
 // site really sells instead of only the first few pages that were crawled.
@@ -549,7 +711,7 @@ function mixSeeds(a: string[], b: string[], max = 25): string[] {
   const out: string[] = [];
   for (let i = 0; out.length < max && (i < a.length || i < b.length); i++) {
     for (const w of [a[i], b[i]])
-      if (w && !seen.has(w) && !isJunkPhrase(w) && out.length < max) {
+      if (w && !seen.has(w) && !isJunkPhrase(w) && isRealKeyword(w) && out.length < max) {
         seen.add(w);
         out.push(w);
       }
@@ -1166,6 +1328,7 @@ Deno.serve(
         homeRes.status,
         homeMs,
         isInternal,
+        homeRes.headers.get("x-robots-tag"),
       );
       const urls = await discover(finalOrigin, finalHost, homeHtml, finalUrl);
       const others = await pool(urls.slice(0, MAX_PAGES - 1), 5, (x) =>
@@ -1186,6 +1349,7 @@ Deno.serve(
     const dupOf = (key: (p: Page) => string) => {
       const g = new Map<string, number>();
       for (const p of okPages) {
+        if (p.noindex || p.nonHtml) continue;
         const k = key(p).trim().toLowerCase();
         if (k) g.set(k, (g.get(k) ?? 0) + 1);
       }
@@ -1194,9 +1358,28 @@ Deno.serve(
     const ctx = {
       dupTitle: dupOf((p) => p.title),
       dupDesc: dupOf((p) => p.description),
+      dupH1: dupOf((p) => p.h1s?.[0] ?? ""),
       broken: brokenSet,
       brokenExt,
+      linkedTo: null as Set<string> | null,
+      homeUrl: pages[0]?.url,
     };
+    // Orphan test needs the whole site: only run it when every discovered page was fetched (a partial crawl would flag normal pages).
+    if (
+      pages.length >= 3 &&
+      pages.length >= (urlsDiscovered ?? 0) &&
+      !okPages.some((q) => (q.internalUrls?.length ?? 0) >= 300) // link lists are capped at 300 per page: a longer list may hide links
+    ) {
+      const linked = new Set<string>();
+      for (const q of okPages) {
+        const from = canon(q.url);
+        for (const u of q.internalUrls ?? []) {
+          const c = canon(u);
+          if (c && c !== from) linked.add(c);
+        }
+      }
+      ctx.linkedTo = linked;
+    }
     const pageOut = pages.map((p) => {
       const issues = pageIssues(p, ctx);
       return {
@@ -1455,7 +1638,7 @@ Deno.serve(
           .filter((r) => r?.keyword && !r.error)
           .map((r) => String(r.keyword).toLowerCase());
         const stillOnSite = [...new Set(prevList)].filter(
-          (k) => groundPhrase(k, corpus, kwMode).mode !== "none",
+          (k) => isRealKeyword(k) && groundPhrase(k, corpus, kwMode).mode !== "none",
         );
         const goneCount = new Set(prevList).size - stillOnSite.length;
         if (goneCount > 0)
@@ -1500,7 +1683,7 @@ Deno.serve(
             (x) =>
               x.keyword.split(" ").length >= 2 &&
               !isJunkPhrase(x.keyword) &&
-              groundPhrase(x.keyword, corpus, kwMode).mode !== "none",
+              groundPhrase(x.keyword, corpus, kwMode).mode === "exact", // top-up phrases must be written word for word on the site
           )
           .slice(0, need)
           .map((x) => x.keyword);
@@ -1512,6 +1695,39 @@ Deno.serve(
         }
       } catch {
         /* top-up is optional */
+      }
+    }
+    // AI EDITOR: the phrases above are all written on the site, but some are still not keywords (part-number soup, spec lists,
+    // sentence fragments). The AI may only REMOVE such phrases from this list (it cannot add or change any), and the rest of the
+    // site's own phrases fill the freed places. If the AI is busy the list stays as it is (the rule-based filter already ran).
+    if (profile && aiOk && elapsed() < 70_000) {
+      try {
+        const have = new Set(profile.seeds.map((k) => k.toLowerCase()));
+        const spare = siteList.filter((k) => !have.has(k.toLowerCase()));
+        const j = await judgeKeywords(
+          [...profile.seeds, ...spare],
+          {
+            site: finalHost,
+            topic: profile.topic,
+            offerings: profile.offerings,
+            titles: pages.slice(0, 8).map((p) => p.title).filter(Boolean),
+          },
+          { max: 120 },
+        );
+        if (j.used || j.dropped.length) {
+          const seeds = j.kept.slice(0, kwLimit + 15);
+          if (seeds.length >= 3) {
+            const gone = profile.seeds.filter((k) => !seeds.includes(k.toLowerCase()) && !seeds.includes(k));
+            profile = { ...profile, seeds };
+            if (gone.length)
+              notes.push(
+                `${gone.length} keyword(s) were removed because they are product codes, spec lists or phrases nobody searches (for example: ${gone.slice(0, 4).join(", ")}).`,
+              );
+          }
+        }
+        if (j.note) notes.push(`Keyword editor: ${j.note}.`);
+      } catch {
+        /* the editor is optional */
       }
     }
     // search volumes are asked now, in parallel with the Google checks, so they cannot run out of time later

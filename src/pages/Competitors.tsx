@@ -12,6 +12,7 @@ import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { fn, supabase } from "../lib/supabase";
 import { Empty, ErrorNote, PageHeader, Spinner } from "../components/ui";
 import { daysAgo, num } from "../lib/format";
+import CompareSites from "../components/CompareSites";
 
 type Site = { host: string; added_at: string; last_checked_at: string | null };
 type Day = {
@@ -192,6 +193,8 @@ export default function Competitors() {
         )}
       </PageHeader>
       <ErrorNote message={error} />
+
+      <CompareSites />
 
       {!loaded ? (
         <div className="card grid place-items-center py-12">

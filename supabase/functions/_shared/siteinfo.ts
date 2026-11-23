@@ -1,4 +1,5 @@
 import { HttpError } from "./utils.ts";
+import { decodeEntities, metaContent } from "./htmlmeta.ts";
 
 // Shared helpers for the overview and research functions (free data sources only).
 
@@ -61,25 +62,13 @@ export function parseInput(raw: string) {
   return u;
 }
 
-export const meta = (html: string, name: string) =>
-  html.match(
-    new RegExp(
-      `<meta[^>]+(?:name|property)=["']${name}["'][^>]*content=["']([^"']*)["']`,
-      "i",
-    ),
-  )?.[1] ??
-  html.match(
-    new RegExp(
-      `<meta[^>]+content=["']([^"']*)["'][^>]*(?:name|property)=["']${name}["']`,
-      "i",
-    ),
-  )?.[1] ??
-  "";
+// Quote-aware parsing lives in htmlmeta.ts (the old regex cut "We're the best" down to "We").
+export const meta = (html: string, name: string) => metaContent(html, name);
 
+// Strip tags first, then decode entities, so "Men&#39;s &amp; Women&#39;s" reads "Men's & Women's"
+// (it used to become "Men s   Women s", which broke title lengths, headings and keyword text).
 export const clean = (s: string) =>
-  s
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&amp;|&#?\w+;/g, " ")
+  decodeEntities(s.replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 
@@ -400,11 +389,15 @@ export async function openPageRank(domain: string) {
   const key = Deno.env.get("OPENPAGERANK_API_KEY");
   if (!key) return null;
   const r = await get(
-    `https://openpagerank.com/api/v1.0/getPageRank?domains[]=${encodeURIComponent(domain)}`,
+    `https://openpagerank.keywordseverywhere.com/api/v1.0/getPageRank?domains[]=${encodeURIComponent(domain)}`,
     8000,
     { headers: { "API-OPR": key, Authorization: `Bearer ${key}` } },
   );
-  if (!r.ok) return null;
+  if (!r.ok) {
+    // 401 = key missing/old DomCop key, 403 = free key used from another IP address, 429 = monthly or per-minute limit
+    console.error(`[open page rank] HTTP ${r.status}: check OPENPAGERANK_API_KEY (see README)`);
+    return null;
+  }
   const j = await r.json();
   const row = j.response?.[0];
   return row?.status_code === 200

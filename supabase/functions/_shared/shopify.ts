@@ -1,3 +1,5 @@
+import { extractHeadings } from "./headings.ts";
+
 // Public Shopify store facts for ANY Shopify website. No login, no API key, no paid tool.
 // Everything comes from endpoints every Shopify storefront already serves publicly.
 //
@@ -315,7 +317,7 @@ function parsePage(html: string): PageInfo {
   return {
     titleLen: title.length,
     descLen: desc.trim().length,
-    h1: (head.match(/<h1[\s>]/gi) ?? []).length,
+    h1: extractHeadings(head).h1n,
     canonical: /<link[^>]+rel=["']canonical["']/i.test(head),
     schema: !!prod,
     rating,

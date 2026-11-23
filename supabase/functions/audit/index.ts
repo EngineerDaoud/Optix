@@ -5,6 +5,12 @@ import {
   ownedWebsite,
   requireUser,
 } from "../_shared/utils.ts";
+import { extractHeadings, stripToBodyHtml } from "../_shared/headings.ts";
+import { looksJsRendered, renderEnabled, renderHtml } from "../_shared/render.ts";
+import { clean } from "../_shared/siteinfo.ts";
+import { hasLink, linkHref, metaContent, robotsDirectives } from "../_shared/htmlmeta.ts";
+import { canon } from "../_shared/analyse.ts";
+import { isUtilityUrl } from "../_shared/keywords.ts";
 
 const UA = "Mozilla/5.0 (compatible; SEOPilotBot/1.0)";
 const SKIP_EXT =
@@ -46,26 +52,42 @@ async function psi(url: string, strategy: "mobile" | "desktop") {
 
 type Page = {
   url: string;
+  finalUrl: string;
   status: number;
   title: string;
   description: string;
   h1: number;
   imgNoAlt: number;
   canonical: boolean;
+  canonicalUrl: string;
   noindex: boolean;
+  viewport: boolean;
+  lang: boolean;
+  words: number;
   links: string[];
 };
 
-async function fetchPage(url: string, origin: string): Promise<Page> {
-  const empty = {
+// Sites that draw their page with JavaScript (React, Vue...) have an empty shell in the raw HTML, so "no H1" would be wrong.
+// For those, a few pages per audit are opened in a real browser service (free Jina Reader fallback) and checked again.
+let renderLeft = 3;
+
+const bare = (host: string) => host.toLowerCase().replace(/^www\./, "");
+
+async function fetchPage(url: string, siteHost: string): Promise<Page> {
+  const empty: Page = {
     url,
+    finalUrl: url,
     status: 0,
     title: "",
     description: "",
     h1: 0,
     imgNoAlt: 0,
     canonical: false,
+    canonicalUrl: "",
     noindex: false,
+    viewport: false,
+    lang: false,
+    words: 0,
     links: [],
   };
   try {
@@ -74,47 +96,55 @@ async function fetchPage(url: string, origin: string): Promise<Page> {
       redirect: "follow",
       signal: AbortSignal.timeout(10000),
     });
+    const finalUrl = r.url || url;
     const type = r.headers.get("content-type") ?? "";
-    if (!type.includes("text/html")) return { ...empty, status: r.status };
-    const html = await r.text();
-    const meta = (name: string) =>
-      html.match(
-        new RegExp(
-          `<meta[^>]+name=["']${name}["'][^>]*content=["']([^"']*)["']`,
-          "i",
-        ),
-      )?.[1] ??
-      html.match(
-        new RegExp(
-          `<meta[^>]+content=["']([^"']*)["'][^>]*name=["']${name}["']`,
-          "i",
-        ),
-      )?.[1] ??
-      "";
+    if (!type.includes("text/html"))
+      return { ...empty, finalUrl, status: r.status };
+    let html = await r.text();
+    if (renderLeft > 0 && renderEnabled() && extractHeadings(html).h1n === 0) {
+      const words = stripToBodyHtml(html)
+        .replace(/<[^>]+>/g, " ")
+        .split(/\s+/)
+        .filter(Boolean).length;
+      const anchors = (html.match(/<a\s[^>]*href=/gi) ?? []).length;
+      if (looksJsRendered(html, words, anchors)) {
+        renderLeft--;
+        const rendered = await renderHtml(url);
+        if (rendered) html = rendered;
+      }
+    }
+    // links: resolved against the FINAL url, tracking parameters / #fragments / trailing slashes removed, so "/about" and
+    // "/about/" (or ?utm_source=...) are one page instead of several, and same-site links work after an http->https or
+    // example.com->www redirect
     const links = new Set<string>();
-    for (const m of html.matchAll(/href=["']([^"'#]+)["']/gi)) {
+    for (const m of html.matchAll(/\bhref=["']([^"']+)["']/gi)) {
       try {
-        const u = new URL(m[1], url);
-        if (
-          u.origin === origin &&
-          !SKIP_EXT.test(u.pathname) &&
-          /^https?:$/.test(u.protocol)
-        )
-          links.add(u.origin + u.pathname + u.search);
+        const u = new URL(m[1].trim(), finalUrl);
+        if (!/^https?:$/.test(u.protocol)) continue;
+        if (bare(u.hostname) !== siteHost || SKIP_EXT.test(u.pathname)) continue;
+        const c = canon(u.toString());
+        if (c) links.add(c);
       } catch {
         /* ignore bad hrefs */
       }
     }
     const imgs = html.match(/<img\b[^>]*>/gi) ?? [];
+    const canonicalHref = linkHref(html, "canonical");
+    const text = clean(stripToBodyHtml(html));
     return {
       url,
+      finalUrl,
       status: r.status,
-      title: (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").trim(),
-      description: meta("description").trim(),
-      h1: (html.match(/<h1[\s>]/gi) ?? []).length,
-      imgNoAlt: imgs.filter((i) => !/\balt=/i.test(i)).length,
-      canonical: /<link[^>]+rel=["']canonical["']/i.test(html),
-      noindex: /noindex/i.test(meta("robots")),
+      title: clean(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? ""),
+      description: metaContent(html, "description").trim(),
+      h1: extractHeadings(html).h1n,
+      imgNoAlt: imgs.filter((i) => !/\balt\s*=/i.test(i)).length,
+      canonical: !!canonicalHref || hasLink(html, "canonical"),
+      canonicalUrl: canonicalHref,
+      noindex: robotsDirectives(html, r.headers.get("x-robots-tag")).noindex,
+      viewport: !!metaContent(html, "viewport"),
+      lang: /<html[^>]+\blang\s*=\s*["']?[a-z]/i.test(html),
+      words: text ? text.split(" ").filter(Boolean).length : 0,
       links: [...links],
     };
   } catch {
@@ -123,18 +153,26 @@ async function fetchPage(url: string, origin: string): Promise<Page> {
 }
 
 async function crawl(start: string, max = 25) {
-  const origin = new URL(start).origin;
+  const siteHost = bare(new URL(start).hostname);
   const seen = new Set<string>();
+  const seenFinal = new Set<string>(); // two addresses that redirect to the same page count once
+  const key = (u: string) => canon(u) ?? u;
   const queue = [start];
   const pages: Page[] = [];
   while (queue.length && pages.length < max) {
-    const batch = queue.splice(0, 5).filter((u) => !seen.has(u));
-    batch.forEach((u) => seen.add(u));
-    const res = await Promise.all(batch.map((u) => fetchPage(u, origin)));
+    const batch = queue
+      .splice(0, 5)
+      .filter((u) => !seen.has(key(u)));
+    batch.forEach((u) => seen.add(key(u)));
+    const res = await Promise.all(batch.map((u) => fetchPage(u, siteHost)));
     for (const p of res) {
+      const fk = key(p.finalUrl);
+      if (seenFinal.has(fk)) continue;
+      seenFinal.add(fk);
+      seen.add(fk);
       pages.push(p);
       for (const l of p.links)
-        if (!seen.has(l) && !queue.includes(l) && queue.length < max * 3)
+        if (!seen.has(key(l)) && !queue.some((q) => key(q) === key(l)) && queue.length < max * 3)
           queue.push(l);
     }
   }
@@ -149,8 +187,24 @@ type Issue = {
   pages: string[];
 };
 
+const SOFT_404 =
+  /\b(?:page not found|error 404|404 error|404 not found|404 page|(?:this|that|the) page (?:does(?:n'?t| not)|did(?:n'?t| not)) exist|nothing found)\b|^\s*(?:404|not found)\s*(?:[|\-–—:!]|$)/i;
+
 function pageIssues(pages: Page[]): Issue[] {
   const ok = (p: Page) => p.status >= 200 && p.status < 400;
+  // a page the owner keeps out of Google on purpose is not judged on snippets or content
+  const idx = (p: Page) => ok(p) && !p.noindex;
+  const count = (key: (p: Page) => string) => {
+    const g = new Map<string, number>();
+    for (const p of pages)
+      if (idx(p)) {
+        const k = key(p).trim().toLowerCase();
+        if (k) g.set(k, (g.get(k) ?? 0) + 1);
+      }
+    return g;
+  };
+  const titles = count((p) => p.title);
+  const descs = count((p) => p.description);
   const rules: {
     id: string;
     severity: Issue["severity"];
@@ -164,22 +218,57 @@ function pageIssues(pages: Page[]): Issue[] {
       test: (p) => !ok(p),
     },
     {
+      id: "soft-404",
+      severity: "critical",
+      title: "Pages that say \"not found\" but return 200 (soft 404)",
+      test: (p) =>
+        ok(p) && p.words < 250 && SOFT_404.test(p.title),
+    },
+    {
       id: "no-title",
       severity: "critical",
       title: "Pages without a title",
-      test: (p) => ok(p) && !p.title,
+      test: (p) => idx(p) && !p.title,
+    },
+    {
+      id: "dup-title",
+      severity: "warning",
+      title: "Pages that share the same title",
+      test: (p) => idx(p) && (titles.get(p.title.trim().toLowerCase()) ?? 0) > 1,
     },
     {
       id: "no-desc",
       severity: "warning",
       title: "Pages without a meta description",
-      test: (p) => ok(p) && !p.description,
+      test: (p) => idx(p) && !p.description,
+    },
+    {
+      id: "desc-len",
+      severity: "info",
+      title: "Meta descriptions too short (under 70) or too long (over 165)",
+      test: (p) =>
+        idx(p) &&
+        !!p.description &&
+        (p.description.length < 70 || p.description.length > 165),
+    },
+    {
+      id: "dup-desc",
+      severity: "info",
+      title: "Pages that share the same meta description",
+      test: (p) =>
+        idx(p) && (descs.get(p.description.trim().toLowerCase()) ?? 0) > 1,
     },
     {
       id: "no-h1",
       severity: "warning",
       title: "Pages without an H1 heading",
       test: (p) => ok(p) && p.h1 === 0,
+    },
+    {
+      id: "no-viewport",
+      severity: "critical",
+      title: "Pages without a mobile viewport tag",
+      test: (p) => ok(p) && !p.viewport,
     },
     {
       id: "img-alt",
@@ -190,8 +279,14 @@ function pageIssues(pages: Page[]): Issue[] {
     {
       id: "noindex",
       severity: "warning",
-      title: "Pages set to noindex",
+      title: "Pages set to noindex (meta tag or X-Robots-Tag header)",
       test: (p) => ok(p) && p.noindex,
+    },
+    {
+      id: "thin",
+      severity: "info",
+      title: "Thin pages (under 300 words)",
+      test: (p) => idx(p) && p.words < 300 && !isUtilityUrl(p.finalUrl),
     },
     {
       id: "multi-h1",
@@ -202,20 +297,42 @@ function pageIssues(pages: Page[]): Issue[] {
     {
       id: "title-len",
       severity: "info",
-      title: "Titles too long (over 60) or too short (under 25)",
+      title: "Titles too long (over 65) or too short (under 20)",
       test: (p) =>
-        ok(p) && !!p.title && (p.title.length > 60 || p.title.length < 25),
+        idx(p) && !!p.title && (p.title.length > 65 || p.title.length < 20),
     },
     {
       id: "canonical",
       severity: "info",
       title: "Pages without a canonical tag",
-      test: (p) => ok(p) && !p.canonical,
+      test: (p) => idx(p) && !p.canonical,
+    },
+    {
+      id: "canon-other",
+      severity: "info",
+      title: "Pages whose canonical points to a different address",
+      test: (p) => {
+        if (!idx(p) || !p.canonicalUrl) return false;
+        const a = canon(p.finalUrl),
+          b = canon(new URL(p.canonicalUrl, p.finalUrl).toString());
+        return !!a && !!b && a !== b;
+      },
+    },
+    {
+      id: "no-lang",
+      severity: "info",
+      title: "Pages without a language attribute on <html>",
+      test: (p) => ok(p) && !p.lang,
     },
   ];
   return rules
     .map((r) => {
-      const hit = pages.filter(r.test).map((p) => p.url);
+      let hit: string[] = [];
+      try {
+        hit = pages.filter(r.test).map((p) => p.finalUrl);
+      } catch {
+        hit = []; // a malformed canonical must not break the whole audit
+      }
       return {
         id: r.id,
         severity: r.severity,
@@ -256,6 +373,12 @@ function vitalIssues(v: Record<string, number | null> | undefined): Issue[] {
     else if (v.cls > 0.1)
       add("cls", "warning", "Layout shifts while loading (CLS over 0.1)");
   }
+  if (v.inp != null) {
+    if (v.inp > 500)
+      add("inp", "critical", "Slow response to clicks and taps (INP over 500 ms)");
+    else if (v.inp > 200)
+      add("inp", "warning", "Response to clicks and taps needs improvement (INP over 200 ms)");
+  }
   if (v.tbt != null && v.tbt > 600)
     add(
       "tbt",
@@ -269,6 +392,7 @@ Deno.serve(
   handle(async (req) => {
     const user = await requireUser(req);
     const { website_id } = await req.json();
+    renderLeft = 3;
     const site = await ownedWebsite(user.id, website_id);
     const url = /^https?:\/\//i.test(site.url)
       ? site.url

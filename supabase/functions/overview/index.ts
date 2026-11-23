@@ -15,6 +15,7 @@ import {
   schemaTypes,
   tranco,
 } from "../_shared/siteinfo.ts";
+import { extractHeadings } from "../_shared/headings.ts";
 
 // "Competitor / domain overview" for ANY public website, using free sources only.
 // It cannot return real clicks, traffic or sales of sites you do not own (that data is private).
@@ -29,14 +30,12 @@ function analyse(html: string, origin: string) {
   const title = clean(
     html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "",
   );
-  const h1s = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)]
-    .map((m) => clean(m[1]))
-    .filter(Boolean)
-    .slice(0, 5);
-  const h2Count = (html.match(/<h2[\s>]/gi) ?? []).length;
+  const hd = extractHeadings(html);
+  const h1s = hd.h1s;
+  const h2Count = hd.h2;
   const body = clean(
     html.replace(
-      /<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi,
+      /<!--[\s\S]*?-->|<head(?=[\s>])[\s\S]*?<\/head>|<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>|<template[\s\S]*?<\/template>|<svg[\s\S]*?<\/svg>/gi,
       " ",
     ),
   );
@@ -63,6 +62,7 @@ function analyse(html: string, origin: string) {
     description: meta(html, "description").trim(),
     descriptionLength: meta(html, "description").trim().length,
     h1s,
+    h1n: hd.h1n,
     h2Count,
     wordCount: words.length,
     canonical: /<link[^>]+rel=["']canonical["']/i.test(html),

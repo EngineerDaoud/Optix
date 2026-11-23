@@ -20,6 +20,7 @@ import {
   Spinner,
 } from "../components/ui";
 import { change, daysAgo, num } from "../lib/format";
+import LiveVisitors from "../components/LiveVisitors";
 
 type Grain = "day" | "week" | "month";
 type Row = {
@@ -257,6 +258,9 @@ export default function Traffic() {
         </button>
       </PageHeader>
       <ErrorNote message={error} />
+      <div className="mb-4">
+        <LiveVisitors websiteId={current.id} />
+      </div>
       {note && (
         <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
           {note}

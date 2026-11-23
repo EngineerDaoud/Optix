@@ -1685,6 +1685,74 @@ const SEV_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 /* ---------- "Improve" guide: why each issue matters and the exact steps to fix it ---------- */
 type Guide = { why: string; steps: string[]; code?: string };
 const IMPROVE: Record<string, Guide> = {
+  "dup-h1": {
+    why: "When several pages share the same H1, Google cannot tell which one is the best answer for that topic, so they compete with each other and none ranks well.",
+    steps: [
+      "List the pages that share the same H1.",
+      "Rewrite each H1 so it describes only that page (product name, category, service or location).",
+      "If two pages truly cover the same thing, merge them and redirect the weaker one.",
+    ],
+  },
+  "canon-other": {
+    why: "A canonical that points to a different URL asks Google to ignore this page and rank the other one. That is right for duplicates and filter pages, but wrong for pages that should rank by themselves.",
+    steps: [
+      "Open the page and view the canonical link in the <head>.",
+      "If this page should rank by itself, change the canonical to its own full address.",
+      "If it is a deliberate duplicate, leave it and make sure the target page is strong and indexable.",
+    ],
+    code: `<link rel="canonical" href="https://example.com/this-page" />`,
+  },
+  "canon-offsite": {
+    why: "The canonical names another website as the owner of this content. Google will usually show that other site instead of yours, so this page will not rank.",
+    steps: [
+      "Find the canonical tag in the page <head> (theme, plugin or SEO app).",
+      "Replace it with this page's own address on your domain.",
+      "Re-run the check to confirm it is gone.",
+    ],
+    code: `<link rel="canonical" href="https://your-domain.com/this-page" />`,
+  },
+  "no-schema": {
+    why: "Structured data tells Google exactly what the page is (a product, an article, a business, an FAQ). It can unlock rich results such as price, rating and FAQ dropdowns, which get more clicks.",
+    steps: [
+      "Choose the type that fits the page: Product, Article, FAQPage, LocalBusiness or BreadcrumbList.",
+      "Add it as JSON-LD in the page <head> (most CMS and shop themes have a setting or app for this).",
+      "Test it with Google's Rich Results Test and fix any errors.",
+    ],
+    code: `<script type="application/ld+json">\n{ "@context": "https://schema.org", "@type": "Product", "name": "Product name", "offers": { "@type": "Offer", "price": "99.00", "priceCurrency": "GBP" } }\n</script>`,
+  },
+  "few-links": {
+    why: "Pages with almost no links out are dead ends. Visitors leave and crawlers cannot move deeper, so related pages are discovered and ranked more slowly.",
+    steps: [
+      "Add links to related products, categories, guides or the next step in the journey.",
+      "Use descriptive link text (not 'click here').",
+      "Check that the main menu and footer links actually appear on this page.",
+    ],
+  },
+  "url-long": {
+    why: "Very long URLs are cut off in search results, are hard to read and share, and often come from filters or duplicated paths.",
+    steps: [
+      "Shorten the page slug to the main words only.",
+      "Add a 301 redirect from the old URL to the new one.",
+      "Update internal links and the sitemap to the new URL.",
+    ],
+  },
+  "url-messy": {
+    why: "Capital letters, underscores and parameters create several versions of the same page and make URLs look untrustworthy.",
+    steps: [
+      "Use lowercase words separated by hyphens.",
+      "Keep tracking and filter parameters out of links you control.",
+      "Make sure the clean URL is the canonical version.",
+    ],
+  },
+  "no-lazy": {
+    why: "Loading every image at once slows the page. Lazy-loading images below the first screen makes the page faster, which helps Core Web Vitals and rankings.",
+    steps: [
+      "Add loading=\"lazy\" to images that are not on the first screen.",
+      "Keep the main hero / first image without lazy-loading so it appears instantly.",
+      "Run the speed test again to see the difference.",
+    ],
+    code: `<img src="photo.jpg" alt="Describe the photo" width="800" height="600" loading="lazy" />`,
+  },
   "no-og": {
     why: "Open Graph tags control the title, text and picture shown when this page is shared on WhatsApp, Facebook, LinkedIn, Slack and X. Without them the preview looks blank or random and gets fewer clicks.",
     steps: [
@@ -1694,6 +1762,54 @@ const IMPROVE: Record<string, Guide> = {
       "Test the result in the Facebook Sharing Debugger or LinkedIn Post Inspector, then run the audit again.",
     ],
     code: `<meta property="og:title" content="Page title here" />\n<meta property="og:description" content="Short summary of the page." />\n<meta property="og:image" content="https://example.com/images/share.jpg" />\n<meta property="og:url" content="https://example.com/this-page" />\n<meta property="og:type" content="website" />`,
+  },
+  "schema-incomplete": {
+    why: "Google only shows rich results (price, stars, FAQ, breadcrumbs) when structured data is valid and has the required fields. Broken or incomplete markup is silently ignored.",
+    steps: [
+      "Open the page in Google's Rich Results Test and read the errors.",
+      "Add the missing fields listed in the issue detail (for example price, priceCurrency, availability or datePublished).",
+      "Make sure the JSON-LD is valid JSON (no trailing commas).",
+      "Re-test and re-run the check.",
+    ],
+  },
+  orphan: {
+    why: "No other page on your site links to this page. Google discovers and values pages mostly through links, so an orphan page is found late, crawled rarely and ranks poorly.",
+    steps: [
+      "Find 2 or 3 related pages (a category, a guide or a similar product) and add a natural text link to this page.",
+      "If it is an important page, also add it to the menu or footer.",
+      "If the page is no longer needed, redirect or remove it and take it out of the sitemap.",
+      "Re-run the check.",
+    ],
+  },
+  "title-stuffed": {
+    why: "Repeating the same word in the title looks like keyword stuffing. Google may rewrite the title in results, which lowers clicks.",
+    steps: [
+      "Rewrite the title as one natural phrase.",
+      "Use the main keyword once, near the start, and the brand at the end.",
+    ],
+  },
+  "desc-same-title": {
+    why: "The meta description repeats the title, so the space under your result adds nothing for the searcher.",
+    steps: [
+      "Write a new description of 70 to 160 characters.",
+      "Explain the benefit and end with a call to action (for example: see prices, get a quote).",
+    ],
+  },
+  "no-h2": {
+    why: "Long pages with no sub-headings are hard to scan and give Google fewer clues about the topics covered.",
+    steps: [
+      "Split the content into logical sections.",
+      "Give each section a short, descriptive H2 that includes the topic in natural words.",
+    ],
+  },
+  "soft-404": {
+    why: "The page tells visitors it does not exist, but the server still answers 200 OK. Google can index these empty pages, waste crawl budget on them and treat the site as low quality.",
+    steps: [
+      "Open the page and confirm it really is a missing or empty page.",
+      "If the content is gone for good, make the server return a real 404 (or 410) status.",
+      "If a similar live page exists, 301-redirect the address to it.",
+      "Remove the address from the sitemap and from internal links, then re-run the check.",
+    ],
   },
   "no-canonical": {
     why: "A canonical tag tells Google which URL is the main version of the page. Without it, the same page reached through filters, tracking links or www / non-www can be treated as duplicates and split its ranking power.",

@@ -300,11 +300,14 @@ async function authority(roots: string[]) {
         .map((d) => `domains[]=${encodeURIComponent(d)}`)
         .join("&");
       const r = await get(
-        `https://openpagerank.com/api/v1.0/getPageRank?${qs}`,
+        `https://openpagerank.keywordseverywhere.com/api/v1.0/getPageRank?${qs}`,
         12000,
         { headers: { "API-OPR": key, Authorization: `Bearer ${key}` } },
       );
-      if (!r.ok) return { map, used: map.size > 0 };
+      if (!r.ok) {
+        console.error(`[open page rank] HTTP ${r.status}: check OPENPAGERANK_API_KEY`);
+        return { map, used: map.size > 0 };
+      }
       const j = await r.json();
       for (const row of j.response ?? [])
         if (row.status_code === 200)
@@ -777,7 +780,7 @@ async function finish(
   }
   if (rows.length && !authorityUsed)
     notes.push(
-      "Authority scores need OPENPAGERANK_API_KEY (free at openpagerank.com).",
+      "Authority scores need OPENPAGERANK_API_KEY (free at keywordseverywhere.com/openpagerank).",
     );
   // NEW = never saved in the link bank before (falls back to the previous run when the bank is still empty)
   const known = await knownLinkKeys(root);

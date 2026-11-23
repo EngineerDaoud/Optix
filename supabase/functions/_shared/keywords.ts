@@ -89,9 +89,20 @@ export function isUtilityUrl(url: string) {
 const CTR_TOP10 = [
   0.276, 0.158, 0.11, 0.08, 0.062, 0.049, 0.04, 0.033, 0.028, 0.025,
 ]; // blended mobile + desktop
+// Linear blend between two neighbouring positions: Search Console reports average positions like 3.6 or 10.4, and the old
+// rounding jumped from 2.5% at position 10 to 1.2% at 10.4 (and treated 3.6 as exactly 4).
+const PAGE2_FIRST = 0.012; // position 11
 export function ctrAt(pos: number) {
-  if (pos <= 10) return CTR_TOP10[Math.max(1, Math.round(pos)) - 1];
-  if (pos <= 20) return 0.012 - (pos - 11) * 0.0008;
+  if (!Number.isFinite(pos) || pos <= 1) return CTR_TOP10[0];
+  if (pos <= 10) {
+    const lo = Math.floor(pos);
+    const t = pos - lo;
+    const a = CTR_TOP10[lo - 1];
+    const b = lo >= 10 ? PAGE2_FIRST : CTR_TOP10[lo];
+    return a + (b - a) * t;
+  }
+  if (pos <= 11) return CTR_TOP10[9] + (PAGE2_FIRST - CTR_TOP10[9]) * (pos - 10);
+  if (pos <= 20) return PAGE2_FIRST - (pos - 11) * 0.0008;
   if (pos <= 30) return 0.004;
   return 0.002;
 }
@@ -259,12 +270,31 @@ export function keywordDifficulty(
 export type Intent =
   "Transactional" | "Commercial" | "Informational" | "Navigational";
 
+// Intent rules. Order matters: a question ("how to write a book") is informational even when it contains a shopping word
+// ("book", "order", "hire"); only a clear buying phrase ("where to buy", "near me", "for sale") beats a question.
+const QUESTION_START =
+  /^(how|what|whats|what's|why|when|where|who|which|can|could|would|will|does|do|did|is|are|was|were|am|should|has|have)\b/;
+const INFO_WORDS =
+  /\b(guide|tutorial|tips|ideas|examples?|meaning|definition|learn|difference|how to|symptoms|causes|benefits|explained|checklist|templates?|steps|facts|statistics|history of)\b/;
+const BEST_HOW =
+  /\b(?:best|top)\s+(?:way|ways|practices?|time|method|methods|tips|exercises|reasons|habits)\b/;
+const BUY_NOW =
+  /\b(where (?:to|can i|do i|can you) buy|near me|for sale|buy now|buy online|order online|free shipping|add to cart)\b/;
+const PRICE_WORDS =
+  /\b(price|prices|pricing|cost|costs|cheap|cheapest|discount|discounts|coupon|coupons|deal|deals)\b|\bhow much\b/;
+const STRONG_TX =
+  /\b(buy|purchase|price|prices|pricing|cheap|cheapest|discount|discounts|deal|deals|coupon|coupons|promo|quote|quotes|shop|cost|costs|sale|wholesale)\b/;
+const VERB_TX =
+  /\b(?:book|order|hire|reserve)\s+(?:a|an|the|your|my|now|online|flights?|hotels?|tickets?|tables?|appointments?|taxi|cab|food|pizza)\b/;
+const COMMERCIAL =
+  /\b(best|top|review|reviews|vs|versus|compare|comparison|alternative|alternatives|rated|worth it)\b/;
+
 export function classifyIntent(
   keyword: string,
   brand?: string,
   commercial = false,
 ): Intent {
-  const k = keyword.toLowerCase();
+  const k = keyword.toLowerCase().replace(/\s+/g, " ").trim();
   if (brand && brand.length >= 3 && k.includes(brand.toLowerCase()))
     return "Navigational";
   if (
@@ -273,24 +303,16 @@ export function classifyIntent(
     )
   )
     return "Navigational";
-  if (
-    /\b(buy|price|prices|pricing|cheap|cheapest|discount|deal|deals|coupon|order|shop|for sale|near me|hire|book|quote|cost|sale)\b/.test(
-      k,
-    )
-  )
-    return "Transactional";
-  if (
-    /\b(best|top|review|reviews|vs|versus|compare|comparison|alternative|alternatives|rated|worth it)\b/.test(
-      k,
-    )
-  )
-    return "Commercial";
-  if (
-    /^(how|what|why|when|where|who|which|can|does|do|is|are|should)\b|\b(guide|tutorial|tips|ideas|examples|meaning|definition|learn|difference|how to|symptoms|causes)\b/.test(
-      k,
-    )
-  )
+  if (BUY_NOW.test(k)) return "Transactional";
+  const bestHow = BEST_HOW.test(k);
+  if (QUESTION_START.test(k) || INFO_WORDS.test(k) || bestHow) {
+    // "how much does it cost" / "what is the best X" are people comparing options, not just learning
+    if (PRICE_WORDS.test(k)) return "Commercial";
+    if (!bestHow && COMMERCIAL.test(k)) return "Commercial";
     return "Informational";
+  }
+  if (STRONG_TX.test(k) || VERB_TX.test(k)) return "Transactional";
+  if (COMMERCIAL.test(k)) return "Commercial";
   if (commercial) return "Transactional";
   // product or place wording with no question word: people are shopping around ("electric bikes uk", "1000w kit")
   if (

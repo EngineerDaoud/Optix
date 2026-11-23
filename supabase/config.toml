@@ -1,3 +1,4 @@
+# FILE: supabase/config.toml
 project_id = "seopilot"
 
 # JWT is verified inside each function with the service client, so the gateway check is off.
@@ -6,8 +7,6 @@ verify_jwt = false
 [functions.sync]
 verify_jwt = false
 [functions.audit]
-verify_jwt = false
-[functions.insights]
 verify_jwt = false
 [functions.report]
 verify_jwt = false
@@ -28,4 +27,12 @@ verify_jwt = false
 [functions.mygoogle]
 verify_jwt = false
 [functions.serperaccount]
+verify_jwt = false
+[functions.overview]
+verify_jwt = false
+[functions.sitetraffic]
+verify_jwt = false
+[functions.compare]
+verify_jwt = false
+[functions.livevisitors]
 verify_jwt = false

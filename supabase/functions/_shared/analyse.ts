@@ -1,5 +1,7 @@
 import { clean, get, meta, schemaTypes } from "./siteinfo.ts";
+import { absUrl, hasLink, linkHref, robotsDirectives, schemaProblems } from "./htmlmeta.ts";
 import { looksJsRendered, renderHtml } from "./render.ts";
+import { extractHeadings, stripToBodyHtml } from "./headings.ts";
 import { emptyFlags, pageFlags, type Flags } from "./checklist.ts";
 
 // Shared page analysis used by the crawl and research functions.
@@ -28,6 +30,7 @@ export type Page = {
   title: string;
   description: string;
   h1s: string[];
+  h1n?: number; // distinct visible H1 headings (image-only ones included); use this, not h1s.length, for "no H1" / "more than one H1"
   h2s?: string[]; // text of the H2/H3 headings (used to find the site's real keywords)
   h2: number;
   h3: number;
@@ -39,6 +42,7 @@ export type Page = {
   og: boolean;
   mixed: number;
   schema: string[];
+  schemaIssues?: string[]; // quality problems inside the JSON-LD (missing price, invalid syntax...)
   rendered?: boolean;
   nonHtml?: boolean;
   contentType?: string;
@@ -175,25 +179,17 @@ export function analysePage(
   status: number,
   ms: number,
   isInternal: (host: string) => boolean,
+  robotsHeader?: string | null,
 ): Page {
   const title = clean(
     html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "",
   );
-  const h1s = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)]
-    .map((m) => clean(m[1]))
-    .filter(Boolean)
-    .slice(0, 5);
-  const body = clean(
-    html.replace(
-      /<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>|<nav[\s\S]*?<\/nav>|<footer[\s\S]*?<\/footer>/gi,
-      " ",
-    ),
-  );
+  // headings are read the way a browser sees them (no comments, scripts, templates, hidden copies, duplicate header prints)
+  const hd = extractHeadings(html);
+  const h1s = hd.h1s;
+  const body = clean(stripToBodyHtml(html));
   const links = extractLinks(html, finalUrl, isInternal);
-  const h2s = [...html.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi)]
-    .map((m) => clean(m[1]))
-    .filter((t) => t && t.length <= 120)
-    .slice(0, 12);
+  const h2s = hd.h2s;
   const anchors = [
     ...new Set(
       [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)]
@@ -220,15 +216,19 @@ export function analysePage(
     title,
     description: meta(html, "description").trim(),
     h1s,
+    h1n: hd.h1n,
     h2s,
-    h2: (html.match(/<h2[\s>]/gi) ?? []).length,
-    h3: (html.match(/<h3[\s>]/gi) ?? []).length,
+    h2: hd.h2,
+    h3: hd.h3,
     words: body ? body.split(" ").filter(Boolean).length : 0,
-    canonical:
-      html.match(
-        /<link[^>]+rel=["']canonical["'][^>]*href=["']([^"']+)["']/i,
-      )?.[1] ?? (/<link[^>]+rel=["']canonical["']/i.test(html) ? "yes" : ""),
-    noindex: /noindex/i.test(meta(html, "robots")),
+    // the real href (any attribute order, relative links resolved against the page) so "points to a different page" can be checked
+    canonical: (() => {
+      const href = linkHref(html, "canonical");
+      if (href) return absUrl(href, finalUrl) || href;
+      return hasLink(html, "canonical") ? "yes" : "";
+    })(),
+    // noindex can sit in <meta name="robots">, <meta name="googlebot"> or the X-Robots-Tag HTTP header
+    noindex: robotsDirectives(html, robotsHeader).noindex,
     lang: html.match(/<html[^>]+lang=["']([^"']+)["']/i)?.[1] ?? "",
     viewport: !!meta(html, "viewport"),
     og: !!meta(html, "og:title"),
@@ -237,12 +237,13 @@ export function analysePage(
     ),
     mixed: (html.match(/\b(?:src|srcset)=["']http:\/\//gi) ?? []).length,
     schema: schemaTypes(html),
+    schemaIssues: schemaProblems(html),
     linkStats: links.stats,
     internalUrls: links.internalUrls,
     externalLinks: links.externalLinks,
     images: extractImages(html),
     flags: pageFlags(html),
-    text: body.slice(0, 3000),
+    text: body.slice(0, 8000), // was 3000: on shop sites the menu ate the cap and text lower on the page (e.g. "ebike motor repairs") was never seen
     anchors,
     metaKeywords: meta(html, "keywords").trim().slice(0, 300),
   };
@@ -255,6 +256,7 @@ export const emptyPage = (url: string, status: number, ms: number): Page => ({
   title: "",
   description: "",
   h1s: [],
+  h1n: 0,
   h2: 0,
   h3: 0,
   words: 0,
@@ -333,7 +335,8 @@ async function fetchPageOnce(
         contentType: ct.split(";")[0] || "unknown",
       };
     const html = (await r.text()).slice(0, 800_000);
-    const page = analysePage(html, r.url, r.status, ms, isInternal);
+    const robotsHeader = r.headers.get("x-robots-tag");
+    const page = analysePage(html, r.url, r.status, ms, isInternal, robotsHeader);
     if (
       canRender &&
       r.status === 200 &&
@@ -341,7 +344,14 @@ async function fetchPageOnce(
     ) {
       const rendered = await renderHtml(r.url);
       if (rendered) {
-        const p2 = analysePage(rendered, r.url, r.status, ms, isInternal);
+        const p2 = analysePage(
+          rendered,
+          r.url,
+          r.status,
+          ms,
+          isInternal,
+          robotsHeader,
+        );
         if (
           p2.words > page.words ||
           p2.linkStats.internal > page.linkStats.internal

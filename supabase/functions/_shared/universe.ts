@@ -282,8 +282,29 @@ const ISO3: Record<string, string> = {
 export const iso2 = (c: string) => ISO3[c.toLowerCase()] ?? null;
 
 // Share of searches in which a result at this average position was actually shown (page 1 almost always, later pages rarely).
-const shown = (p: number) =>
-  p <= 10 ? 0.9 : p <= 20 ? 0.35 : p <= 30 ? 0.1 : 0.03;
+// A flat 0.9 for every position on page 1 under-counted demand: a result at position 1-3 is on screen in almost every search,
+// but one at position 8-10 is often below the fold (mobile especially), so only about half of the searches record an impression.
+// Smooth curve (linear between these points), still a rule of thumb, not an exact measurement.
+const SHOWN_CURVE: [number, number][] = [
+  [1, 0.98],
+  [3, 0.95],
+  [5, 0.88],
+  [8, 0.74],
+  [10, 0.62],
+  [11, 0.4],
+  [20, 0.3],
+];
+const shown = (p: number) => {
+  if (p <= SHOWN_CURVE[0][0]) return SHOWN_CURVE[0][1];
+  for (let i = 1; i < SHOWN_CURVE.length; i++) {
+    const [x1, y1] = SHOWN_CURVE[i];
+    if (p <= x1) {
+      const [x0, y0] = SHOWN_CURVE[i - 1];
+      return y0 + ((y1 - y0) * (p - x0)) / (x1 - x0);
+    }
+  }
+  return 0.3;
+};
 
 /** Monthly search demand implied by real impressions. Only trusted for positions 1-20 and at least 20 impressions. */
 export function volumeFromGsc(

@@ -39,6 +39,7 @@ export type CPage = {
   ms: number;
   title: string;
   h1s: string[];
+  h1n?: number;
   words: number;
   canonical: string;
   viewport: boolean;
@@ -81,6 +82,10 @@ export function pageFlags(html: string): Flags {
     ["Licensed", /\blicen[sc]ed\b/],
     ["Money-back guarantee", /money[- ]back|refund guarantee/],
     ["Trustpilot", /trustpilot/],
+    ["Certified", /\bcertified\b|\biso ?(9001|27001|14001)\b/],
+    ["BBB", /\bbbb\b|better business bureau/],
+    ["Warranty / guarantee", /\bwarranty\b|satisfaction guarantee|\b\d+[- ]year guarantee/],
+    ["Easy returns", /free returns?|easy returns?|\b\d+[- ]day returns?/],
   ] as [string, RegExp][])
     if (re.test(low)) trust.push(label);
   const payment: string[] = [];
@@ -110,6 +115,19 @@ export function pageFlags(html: string): Flags {
 
 // ---------- helpers ----------
 
+// schema.org types that identify the business, and types that describe what it sells or publishes (sub-types of LocalBusiness
+// are many, so a restaurant, dentist or hotel must count as an "organization" too)
+const ORG_TYPES = new Set(
+  "Organization Corporation LocalBusiness OnlineStore OnlineBusiness Store TravelAgency Restaurant FoodEstablishment CafeOrCoffeeShop Bakery BarOrPub Hotel LodgingBusiness Resort Hostel Motel ProfessionalService LegalService Attorney AccountingService FinancialService InsuranceAgency RealEstateAgent Dentist Physician MedicalBusiness MedicalClinic Hospital Pharmacy HealthAndBeautyBusiness BeautySalon HairSalon DaySpa GymOrHealthClub SportsClub AutoRepair AutomotiveBusiness AutoDealer HomeAndConstructionBusiness Plumber Electrician RoofingContractor GeneralContractor MovingCompany Locksmith EducationalOrganization School CollegeOrUniversity NGO GovernmentOrganization SportsOrganization PerformingGroup".split(
+    " ",
+  ),
+);
+const CONTENT_TYPES = new Set(
+  "Product ProductGroup Offer AggregateOffer Service Event Article BlogPosting NewsArticle TechArticle FAQPage HowTo Recipe Course JobPosting SoftwareApplication WebApplication MobileApplication VideoObject TouristTrip TouristAttraction Book Movie CreativeWork".split(
+    " ",
+  ),
+);
+
 const norm = (u: string) => u.replace(/#.*$/, "").replace(/\/$/, "");
 const list = (a: string[], n = 3) =>
   a.slice(0, n).join(", ") + (a.length > n ? ` and ${a.length - n} more` : "");
@@ -130,6 +148,46 @@ async function safe<T>(p: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+/** Pure robots.txt reader (exported for tests). */
+export function parseRobots(txt: string) {
+  // robots.txt rules belong to a GROUP: one or more consecutive User-agent lines followed by their rules. The old code only looked
+  // at the most recent User-agent line, so "User-agent: *" + "User-agent: bingbot" + "Disallow: /" was missed, and a site that
+  // blocked only Googlebot looked fine.
+  let agents: string[] = [];
+  let inRules = false;
+  const block: Record<string, boolean> = {};
+  const allow: Record<string, boolean> = {};
+  const hasRules: Record<string, boolean> = {};
+  const sitemaps: string[] = [];
+  for (const raw of txt.split(/\r?\n/)) {
+    const line = raw.replace(/#.*/, "").trim();
+    const m = line.match(/^([a-z-]+)\s*:\s*(.*)$/i);
+    if (!m) continue;
+    const k = m[1].toLowerCase(),
+      v = m[2].trim();
+    if (k === "user-agent") {
+      if (inRules) {
+        agents = [];
+        inRules = false;
+      }
+      agents.push(v.toLowerCase());
+    } else if (k === "disallow" || k === "allow") {
+      inRules = true;
+      const all = v === "/" || v === "/*";
+      for (const a of agents) {
+        hasRules[a] = true;
+        if (k === "disallow" && all) block[a] = true;
+        if (k === "allow" && all) allow[a] = true;
+      }
+    } else if (k === "sitemap" && v) sitemaps.push(v);
+  }
+  // a rule for googlebot wins over the "*" group for Google; "Allow: /" beats "Disallow: /" (least restrictive rule wins)
+  const blocked = (a: string) => !!block[a] && !allow[a];
+  // Google obeys only the most specific group: a googlebot group with its own rules replaces the "*" group completely
+  const blocksAll = hasRules["googlebot"] ? blocked("googlebot") : blocked("*");
+  return { blocksAll, sitemaps };
+}
+
 async function robotsInfo(origin: string) {
   const r = await safe(get(`${origin}/robots.txt`, 6000), null);
   if (!r || !r.ok)
@@ -147,19 +205,7 @@ async function robotsInfo(origin: string) {
       sitemaps: [] as string[],
       status: 200,
     };
-  let inStar = false,
-    blocksAll = false;
-  const sitemaps: string[] = [];
-  for (const raw of txt.split(/\r?\n/)) {
-    const line = raw.replace(/#.*/, "").trim();
-    const m = line.match(/^([a-z-]+)\s*:\s*(.*)$/i);
-    if (!m) continue;
-    const k = m[1].toLowerCase(),
-      v = m[2].trim();
-    if (k === "user-agent") inStar = v === "*";
-    else if (k === "disallow" && inStar && v === "/") blocksAll = true;
-    else if (k === "sitemap" && v) sitemaps.push(v);
-  }
+  const { blocksAll, sitemaps } = parseRobots(txt);
   return { found: true, blocksAll, sitemaps, status: 200 };
 }
 
@@ -402,7 +448,7 @@ export async function buildChecklist(
       "1.3",
       "XML Sitemap",
       "High",
-      "Indexation: Helps Google find your new Umrah packages fast.",
+      "Indexation: Helps Google find your new and updated pages fast.",
       st,
       sitemap.ok
         ? `Sitemap found at ${short(sitemap.url)} with ${sitemap.count} ${sitemap.isIndex ? "sub-sitemaps" : "URLs"}.${inRobots ? "" : " It is not listed in robots.txt."}`
@@ -463,7 +509,7 @@ export async function buildChecklist(
       "1.6",
       "Canonical Tags",
       "High",
-      "Accuracy: Prevents duplicate package issues.",
+      "Accuracy: Prevents duplicate-content issues.",
       st,
       miss.length
         ? `${miss.length} of ${ok.length} pages have no canonical tag, e.g. ${list(miss.map((p) => short(p.url)))}.`
@@ -491,22 +537,8 @@ export async function buildChecklist(
   {
     const withSchema = ok.filter((p) => p.schema.length);
     const all = new Set(ok.flatMap((p) => p.schema));
-    const org = [
-      "Organization",
-      "LocalBusiness",
-      "TravelAgency",
-      "Store",
-      "Corporation",
-    ].some((t) => all.has(t));
-    const offer = [
-      "Product",
-      "Offer",
-      "TouristTrip",
-      "Service",
-      "Event",
-      "Article",
-      "BlogPosting",
-    ].some((t) => all.has(t));
+    const org = [...all].some((t) => ORG_TYPES.has(t));
+    const offer = [...all].some((t) => CONTENT_TYPES.has(t));
     const st: CheckStatus = !withSchema.length
       ? "fail"
       : org && offer
@@ -518,12 +550,12 @@ export async function buildChecklist(
       "1.8",
       "Schema Markups",
       "High",
-      "E-com: Shows price & availability in Google Search.",
+      "Rich results: can show price, ratings and FAQs in Google Search.",
       st,
       withSchema.length
         ? `${withSchema.length} of ${ok.length} pages have schema. Types found: ${[...all].slice(0, 8).join(", ")}.${org ? "" : " No Organization/LocalBusiness schema."}${offer ? "" : " No Product/Offer/Service schema."}`
         : "No schema (JSON-LD) found on any crawled page.",
-      "Add JSON-LD: Organization or LocalBusiness on the home page, Product with Offer (price, availability) on package or product pages, BreadcrumbList and FAQPage where they apply.",
+      "Add JSON-LD: Organization or LocalBusiness on the home page, Product with Offer (price, availability) on product pages, Service on service pages, Article on blog posts, BreadcrumbList and FAQPage where they apply.",
     );
   }
   {
@@ -642,8 +674,9 @@ export async function buildChecklist(
     }
   }
   {
-    const none = ok.filter((p) => p.h1s.length === 0),
-      multi = ok.filter((p) => p.h1s.length > 1);
+    const h1c = (p: (typeof ok)[number]) => p.h1n ?? p.h1s.length;
+    const none = ok.filter((p) => h1c(p) === 0),
+      multi = ok.filter((p) => h1c(p) > 1);
     add(
       CONTENT,
       "Quarterly",
@@ -679,12 +712,12 @@ export async function buildChecklist(
       "2.3",
       "Image Alt Text",
       "Med",
-      "Search: Helps packages show up in Google Images.",
+      "Search: Helps your products and pages show up in Google Images.",
       st,
       total
         ? `${miss} of ${total} images have no alt attribute (${pct(miss, total)}%).`
         : "No images found on the crawled pages.",
-      "Add short, descriptive alt text to every meaningful image, for example the package or place shown.",
+      "Add short, descriptive alt text to every meaningful image, for example the product, service or place shown.",
     );
   }
   {
@@ -706,10 +739,10 @@ export async function buildChecklist(
       "2.4",
       "Internal Link Flow",
       "High",
-      "Authority: Passes power from Home to Package pages.",
+      "Authority: Passes authority from the home page to your key pages.",
       st,
       `Home page has ${homeLinks} internal links. ${notFromHome.length} of ${others.length} other crawled pages are not linked from the home page; ${weak.length} pages have fewer than 3 internal links.`,
-      "Link from the home page and menus to your key package/service pages, and link related pages to each other with clear anchor text.",
+      "Link from the home page and menus to your key product, category or service pages, and link related pages to each other with clear anchor text.",
     );
   }
   {
@@ -742,7 +775,7 @@ export async function buildChecklist(
       "2.6",
       "Customer Reviews",
       "High",
-      "Trust: Builds credibility for expensive travel packages.",
+      "Trust: Builds credibility, especially for higher-priced products and services.",
       st,
       `${shown} of ${ok.length} pages show reviews or testimonials. ${schemaOk ? "Review schema is present." : "No Review/AggregateRating schema found."}`,
       "Show real customer reviews on key pages and mark them up with AggregateRating schema (only for reviews that are genuinely on the page).",
@@ -795,10 +828,21 @@ export async function buildChecklist(
     const trust = [...new Set(ok.flatMap((p) => p.flags.trust))],
       pay = [...new Set(ok.flatMap((p) => p.flags.payment))];
     const cert = trust.some((t) =>
-      ["IATA", "ATOL", "ABTA", "Accredited", "Licensed"].includes(t),
+      [
+        "IATA",
+        "ATOL",
+        "ABTA",
+        "Accredited",
+        "Licensed",
+        "Certified",
+        "BBB",
+      ].includes(t),
+    );
+    const assurance = trust.some((t) =>
+      ["Money-back guarantee", "Warranty / guarantee", "Easy returns"].includes(t),
     );
     const st: CheckStatus =
-      cert && (pay.length || trust.includes("Money-back guarantee"))
+      cert && (pay.length || assurance)
         ? "pass"
         : cert || pay.length || trust.length
           ? "warn"
@@ -807,14 +851,14 @@ export async function buildChecklist(
       CONTENT,
       "Quarterly",
       "2.11",
-      "Trust Badges (IATA/ATOL)",
+      "Trust Badges & Accreditations",
       "High",
-      "E-com: Proves the site is safe for financial transactions.",
+      "Trust: Shows visitors the business is real, accredited and safe to pay.",
       st,
       trust.length || pay.length
-        ? `Found: ${[...trust, ...pay].join(", ")}.${cert ? "" : " No licence or accreditation (IATA/ATOL/ABTA) mention."}`
+        ? `Found: ${[...trust, ...pay].join(", ")}.${cert ? "" : " No licence, accreditation or certification mention."}`
         : "No trust badges, accreditations or secure-payment marks found in page code.",
-      "Show your licence/accreditation logos (IATA, ATOL, ABTA or local equivalent) and secure-payment icons in the footer and on booking pages.",
+      "Show your licences, accreditations or certifications (for example industry bodies, ISO, BBB or your local equivalent), plus secure-payment icons and your returns / guarantee policy, in the footer and on checkout or booking pages.",
     );
   }
 
@@ -891,11 +935,7 @@ export async function buildChecklist(
   }
   {
     const localSchema = ok.some((p) =>
-      p.schema.some((t) =>
-        ["LocalBusiness", "TravelAgency", "Store", "Restaurant", "Hotel"].includes(
-          t,
-        ),
-      ),
+      p.schema.some((t) => ORG_TYPES.has(t) && t !== "Organization" && t !== "Corporation"),
     );
     const maps = ok.some((p) => p.flags.maps);
     const NAME = "Google Business Profile";
