@@ -27,6 +27,7 @@ type Row = {
   target?: string | null;
   outbound?: number | null;
   wrapped?: boolean;
+  spam?: { score: number; level: "clean" | "watch" | "toxic"; reasons: string[] } | null;
 };
 export type Backlinks = {
   host: string;
@@ -58,6 +59,17 @@ export type Backlinks = {
     placements: Record<string, number>;
     topPages: { url: string; links: number; domains: number }[];
     sourceCounts: Record<string, number>;
+    spam?: {
+      toxicLinks: number;
+      watchLinks: number;
+      cleanLinks: number;
+      toxicShare: number;
+      anchorOverOptimised: boolean;
+      spamRisk: number;
+      riskLabel: string;
+      penalty: number;
+    };
+    scoreBeforeSpam?: number;
     totalBacklinks: number | null;
     totalDomains: number | null;
     blocked: number;
@@ -421,6 +433,16 @@ export default function BacklinksPanel({
                 <div className="truncate text-[11px] text-slate-400">
                   {r.title}
                 </div>
+                {r.spam && r.spam.level !== "clean" && (
+                  <div
+                    className="mt-0.5 truncate text-[11px]"
+                    title={r.spam.reasons.join("; ")}
+                    style={{ color: r.spam.level === "toxic" ? "#dc2626" : "#d97706" }}
+                  >
+                    {r.spam.level === "toxic" ? "Toxic" : "Watch"} · spam {r.spam.score}
+                    {r.spam.reasons[0] ? ` · ${r.spam.reasons[0]}` : ""}
+                  </div>
+                )}
               </td>
               <td className="td w-36">
                 <div className="flex items-center gap-2">
@@ -694,6 +716,53 @@ export default function BacklinksPanel({
               ))}
             </div>
           </div>
+
+          {s.spam && (
+            <div className="mb-4 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-800">
+              <div className="mb-1 font-semibold text-slate-500">
+                Spam check of your links
+              </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                <span>
+                  Spam risk:{" "}
+                  <b
+                    style={{
+                      color:
+                        s.spam.spamRisk >= 35
+                          ? "#dc2626"
+                          : s.spam.spamRisk >= 15
+                            ? "#d97706"
+                            : "#16a34a",
+                    }}
+                  >
+                    {s.spam.spamRisk}/100 ({s.spam.riskLabel})
+                  </b>
+                </span>
+                <span>
+                  <Dot color="#dc2626" />
+                  Toxic: <b>{s.spam.toxicLinks}</b>
+                </span>
+                <span>
+                  <Dot color="#d97706" />
+                  Watch: <b>{s.spam.watchLinks}</b>
+                </span>
+                <span>
+                  <Dot color="#16a34a" />
+                  Clean: <b>{s.spam.cleanLinks}</b>
+                </span>
+                {s.spam.penalty > 0 && (
+                  <span className="text-slate-500">
+                    Link score {s.scoreBeforeSpam} → {s.score} (−{s.spam.penalty} for spam)
+                  </span>
+                )}
+                {s.spam.anchorOverOptimised && (
+                  <span className="text-amber-600">
+                    Too many exact keyword anchors
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="mb-4 grid gap-5 md:grid-cols-2">
             {bl.authorityUsed && (

@@ -2300,7 +2300,7 @@ Deno.serve(
     let authority: ReturnType<typeof computeAuthority> = null;
     try {
       const sig = shared
-        ? { referringDomains: null, top10Appearances: null }
+        ? { referringDomains: null, top10Appearances: null, spam: null }
         : await bankSignals(siteRoot);
       const regYear = (domain as { registered?: string } | null)?.registered ??
         (age as { since?: string } | null)?.since ?? null;
@@ -2324,6 +2324,7 @@ Deno.serve(
         rankedKeywords: rankedCount ?? null,
         referringDomains: sig.referringDomains,
         top10Appearances: sig.top10Appearances,
+        spam: sig.spam,
         realUsers: !!field,
         ageYears,
         pages: urlsDiscovered ?? null,

@@ -34,6 +34,7 @@ import {
   fromWikipedia,
   normUrl,
 } from "../_shared/linksources.ts";
+import { linkSpam, profileSpam, type SpamResult } from "../_shared/spam.ts";
 
 // Backlink discovery in three small steps. One edge function call may only use ~2 s of CPU and 256 MB of memory,
 // so the browser calls this function several times and shows every backlink as soon as it is confirmed:
@@ -199,6 +200,7 @@ type Row = {
   target: string | null;
   outbound: number | null;
   wrapped: boolean;
+  spam?: SpamResult | null; // spam / toxicity of the linking page (0-100, higher = worse)
 };
 
 async function readCapped(r: Response, max: number) {
@@ -792,6 +794,23 @@ async function finish(
         ? !known.keys.has(normUrl(r.url))
         : prev.length > 0 && !prevVerified.has(normUrl(r.url)));
   });
+  // SPAM CHECK: every verified link gets a 0-100 spam score with reasons; toxic links lose their ranking power
+  rows.forEach((r) => {
+    if (!r.verified) return;
+    r.spam = linkSpam({
+      domain: r.domain,
+      title: r.title,
+      anchor: r.anchor,
+      anchorType: r.anchorType,
+      rel: r.rel,
+      placement: r.placement,
+      outbound: r.outbound,
+      authority: r.authority,
+      links: r.links,
+    });
+    if (r.power != null && r.spam.level !== "clean")
+      r.power = Math.round(r.power * (r.spam.level === "toxic" ? 0.15 : 0.6));
+  });
   rows.sort(
     (x, y) =>
       Number(y.verified) - Number(x.verified) ||
@@ -812,15 +831,18 @@ async function finish(
     : 0;
   const totalDomains = Number(body.totalDomains) || null,
     totalBacklinks = Number(body.totalBacklinks) || null;
-  // SEOPilot's own simple formula (not Semrush): 40% how many linking domains, 40% how strong they are, 20% share of follow links
+  // Link score v2: 40% how many linking domains (log scale: 10 sites ~ 33, 100 ~ 67, 1,000 ~ 100, so big sites no longer hit 100 at 10 domains),
+  // 40% how strong they are, 20% share of follow links, then MINUS the spam penalty of the profile.
   const domainBase = Math.max(domainsVerified, totalDomains ?? 0);
-  const score = ver.length
+  const profile = profileSpam(ver);
+  const rawScore = ver.length
     ? Math.round(
-        0.4 * Math.min(100, domainBase * 10) +
+        0.4 * Math.min(100, (Math.log10(Math.max(1, domainBase)) / 3) * 100) +
           0.4 * (avgAuthority ?? 0) +
           0.2 * followShare * 100,
       )
     : 0;
+  const score = Math.max(0, rawScore - profile.penalty);
   const anchors = { brand: 0, url: 0, generic: 0, keyword: 0, image: 0 };
   ver.forEach((r) => {
     if (r.anchorType) anchors[r.anchorType]++;
@@ -891,6 +913,8 @@ async function finish(
     ).length,
     weak: scored.filter((r) => (r.authority ?? 0) < 20).length,
     score,
+    scoreBeforeSpam: rawScore,
+    spam: profile,
     anchors,
     newLinks: rows.filter((r) => r.isNew).length,
     lost: bankOn ? gone.length : lost.length,
