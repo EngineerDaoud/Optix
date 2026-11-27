@@ -88,6 +88,7 @@ const LABELS: Record<string, string> = {
   crawl: "Site crawl",
   audit: "Audit",
   overview: "Domain overview",
+  aivisibility: "AI visibility",
   competitor: "Competitor traffic",
   sitetraffic: "Site traffic",
   report: "Report",

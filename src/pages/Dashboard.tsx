@@ -70,8 +70,12 @@ import {
 import WorldMap from "../components/WorldMap";
 import CassieBoard from "../components/CassieBoard";
 import DomainOverview from "../components/DomainOverview";
+import SeoSummary from "../components/SeoSummary";
+import AiVisibility from "../components/AiVisibility";
+import OrganicCompetitors from "../components/OrganicCompetitors";
+import PositioningMap from "../components/PositioningMap";
 import { HeadToHead, KeywordTracker } from "../components/Compete";
-import BacklinksPanel from "../components/BacklinksPanel";
+import BacklinksPanel, { type Backlinks } from "../components/BacklinksPanel";
 import MyGoogleData from "../components/MyGoogleData";
 
 const COUNTRIES: [string, string][] = [
@@ -167,6 +171,7 @@ export default function Dashboard() {
   const [storeBusy, setStoreBusy] = useState(false);
   const [storeOpen, setStoreOpen] = useState(false);
   const [blOpen, setBlOpen] = useState(false);
+  const [blData, setBlData] = useState<Backlinks | null>(null);
   // bumped on every Analyze / Re-run so the backlinks run together with the check
   const [blRun, setBlRun] = useState<{ id: number; force: boolean } | null>(null);
   const storeKey = useRef("");
@@ -853,8 +858,51 @@ export default function Dashboard() {
 
       {d && (
         <div ref={reportRef} className="space-y-5">
-          {/* ---------------- domain authority + keyword research ---------------- */}
-          <DomainOverview d={d} store={storeScore} />
+          {/* ---------------- 1. domain, authority, organic search ---------------- */}
+          <DomainOverview
+            d={d}
+            store={storeScore}
+            backlinks={blData}
+            aiSlot={
+              <AiVisibility
+                url={m.url}
+                host={m.host}
+                keywords={(d.keywordTable ?? [])
+                  .slice(0, 8)
+                  .map((k: any) => String(k.keyword))}
+              />
+            }
+          />
+
+
+          {/* ---------------- 2. SEO summary: the headline numbers ---------------- */}
+          <SeoSummary
+            d={d}
+            url={m.url}
+            country={m.country}
+            backlinks={blData}
+            keywords={(d.keywordTable ?? [])
+              .slice(0, 60)
+              .map((k: any) => String(k.keyword))}
+          />
+
+          {/* ---------------- positioning map + organic competitors (AI Search now lives in the Organic search card) ---------------- */}
+          <div className="grid items-stretch gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))]">
+            <PositioningMap
+              url={m.url}
+              country={m.country}
+              keywords={(d.keywordTable ?? [])
+                .slice(0, 60)
+                .map((k: any) => String(k.keyword))}
+            />
+            <OrganicCompetitors
+              url={m.url}
+              country={m.country}
+              keywords={(d.keywordTable ?? [])
+                .slice(0, 60)
+                .map((k: any) => String(k.keyword))}
+            />
+          </div>
 
           {/* ---------------- your own Google Analytics + Search Console, matched automatically for any site ---------------- */}
           <div
@@ -878,6 +926,7 @@ export default function Dashboard() {
               open={blOpen}
               onOpenChange={setBlOpen}
               trigger={blRun}
+              onLoaded={setBlData}
             />
           </div>
 

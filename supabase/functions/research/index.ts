@@ -185,6 +185,8 @@ type Ranking = {
   commercial?: boolean;
   error?: string;
   features?: Features;
+  /** the site itself runs a Google ad on this search: { pos } = ad position (1 = first ad). null = no own ad. */
+  paid?: { pos: number } | null;
   serp?: { domains: SerpDomain[]; titleMatches: number };
 };
 
@@ -935,6 +937,15 @@ async function checkRanks(
       const commercial =
         (Array.isArray(j.ads) && j.ads.length > 0) ||
         (Array.isArray(j.shopping) && j.shopping.length > 0);
+      // paid keywords: is one of the ads on this result page the site's own? (free, same Serper answer, no extra call)
+      let paid: { pos: number } | null = null;
+      if (Array.isArray(j.ads))
+        j.ads.forEach((a: { link?: string; position?: number }, i: number) => {
+          if (paid) return;
+          const h = hostOf(a?.link ?? "");
+          if (h && isSite(h))
+            paid = { pos: typeof a.position === "number" ? a.position : i + 1 };
+        });
       rankings.push({
         keyword,
         position,
@@ -942,6 +953,7 @@ async function checkRanks(
         title,
         top,
         commercial,
+        paid,
         features: extractFeatures(j),
         serp: { domains: serpDomains, titleMatches },
       });

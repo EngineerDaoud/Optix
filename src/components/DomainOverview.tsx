@@ -3,6 +3,7 @@ import { CalendarClock, Globe2, ShieldCheck, Star } from "lucide-react";
 import { Badge } from "./ui";
 import { compact, Dot, healthColor, Panel, Ring } from "./dash";
 import { positionBuckets } from "../lib/report";
+import type { Backlinks } from "./BacklinksPanel";
 
 const fmtDate = (s?: string | null) =>
   s
@@ -81,6 +82,52 @@ const Row = ({ k, v }: { k: string; v: ReactNode }) => (
   </div>
 );
 
+/** Small donut with a percentage inside. */
+function MiniRing({
+  value,
+  color,
+  label,
+}: {
+  value: number;
+  color: string;
+  label: string;
+}) {
+  const r = 16;
+  const len = 2 * Math.PI * r;
+  return (
+    <div className="text-center">
+      <div className="relative h-12 w-12">
+        <svg viewBox="0 0 40 40" className="h-12 w-12 -rotate-90" aria-hidden>
+          <circle
+            cx="20"
+            cy="20"
+            r={r}
+            fill="none"
+            strokeWidth="5"
+            className="stroke-slate-200 dark:stroke-slate-700"
+          />
+          <circle
+            cx="20"
+            cy="20"
+            r={r}
+            fill="none"
+            strokeWidth="5"
+            stroke={color}
+            strokeLinecap="round"
+            strokeDasharray={`${(Math.max(value, value ? 3 : 0) / 100) * len} ${len}`}
+          />
+        </svg>
+        <span className="num absolute inset-0 grid place-items-center text-[11px] font-extrabold">
+          {value}%
+        </span>
+      </div>
+      <div className="mt-0.5 text-[10px] font-medium text-slate-500">
+        {label}
+      </div>
+    </div>
+  );
+}
+
 function Bar({
   label,
   value,
@@ -157,12 +204,28 @@ function Stars({ value, size = 20 }: { value: number; size?: number }) {
   );
 }
 
+/** Authority 0-100 of a saved check (shared with the SEO summary card, so both always show the same number). */
+export function siteAuthority(d: any): number | null {
+  const s = d?.site;
+  if (!s) return null;
+  return (
+    (s.authority as { score: number } | null)?.score ??
+    authorityScore(s.opr?.score, d?.traffic?.seo?.organic?.mid, s.tranco)
+  );
+}
+
 /** Semrush-style "domain overview" row: who the site is, how strong it is, how it ranks, what we cannot know for free. */
 export default function DomainOverview({
   d,
   store,
+  backlinks,
+  aiSlot,
 }: {
+  /** AI Search card, shown as its own card next to the Organic search card */
+  aiSlot?: ReactNode;
   d: any;
+  /** saved backlink check: fills the link rows when the Open PageRank score is not available */
+  backlinks?: Backlinks | null;
   /** the store's own website score (Store data card), counted in the overall site rating */
   store?: { score?: number } | null;
 }) {
@@ -171,6 +234,18 @@ export default function DomainOverview({
     m = d.meta,
     est = d.traffic?.seo;
   const bk = positionBuckets(d);
+  const bl = backlinks?.summary ?? null;
+  const segs = [
+    { label: "Top 3", n: bk.top3, color: "#16a34a" },
+    { label: "4-10", n: Math.max(0, bk.top10 - bk.top3), color: "#3b82f6" },
+    { label: "11-30", n: Math.max(0, bk.top30 - bk.top10), color: "#6c47ff" },
+    { label: "31+", n: Math.max(0, bk.ranked - bk.top30), color: "#94a3b8" },
+    {
+      label: "Not ranking",
+      n: Math.max(0, bk.checked - bk.ranked),
+      color: "#d97706",
+    },
+  ].filter((x) => x.n > 0);
   const left = daysLeft(dom?.expires);
   // the server builds the full score from every signal; old saved checks fall back to the local formula
   const auth = s.authority as {
@@ -315,12 +390,8 @@ export default function DomainOverview({
               ? s.tranco <= 1e6
                 ? `#${s.tranco.toLocaleString()} of 1M`
                 : `#${s.tranco.toLocaleString()}`
-              : "Not ranked"
+              : "Not in top 1M"
           }
-        />
-        <Row
-          k="Authority score"
-          v={authority != null ? `${authority} / 100` : "–"}
         />
         <Row
           k="Link strength"
@@ -330,11 +401,23 @@ export default function DomainOverview({
                 {s.opr.score.toFixed(1)} / 10
                 {s.opr.rank ? ` · #${compact(s.opr.rank)}` : ""}
               </>
+            ) : bl?.avgAuthority != null ? (
+              <span title="Average authority of the sites we verified linking to this site (free backlink check). Open PageRank is not connected.">
+                {bl.avgAuthority} / 100 · from links
+              </span>
             ) : (
-              "–"
+              <span title="Run the backlink check, or fix OPENPAGERANK_API_KEY (the free key only works from one IP address).">
+                –
+              </span>
             )
           }
         />
+        {bl && (
+          <Row
+            k="Linking domains"
+            v={`${(bl.totalDomains ?? bl.linkingDomains).toLocaleString()}${bl.totalDomains ? "" : " (verified)"}`}
+          />
+        )}
         <Row
           k="Pages crawled"
           v={`${m.pagesCrawled}${m.urlsDiscovered > m.pagesCrawled ? ` of ${m.urlsDiscovered} found` : ""}`}
@@ -346,7 +429,9 @@ export default function DomainOverview({
             Overall site rating
           </div>
           {stars == null ? (
-            <div className="mt-1 text-sm text-slate-500">Not enough data yet.</div>
+            <div className="mt-1 text-sm text-slate-500">
+              Not enough data yet.
+            </div>
           ) : (
             <>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -392,80 +477,93 @@ export default function DomainOverview({
         </div>
       </Panel>
 
-      <Panel
-        title="Organic search"
-        sub={`Google ${m.country.toUpperCase()} · approx. monthly`}
-        right={<Globe2 className="h-4 w-4 text-slate-400" />}
-      >
-        <div className="mb-3 grid grid-cols-2 gap-3 text-center">
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
-            <div className="whitespace-nowrap text-[11px] font-semibold text-slate-500">
-              Traffic / month
+      {/* one column: Organic search on top, AI Search below it, each its own box */}
+      <div className="flex flex-col gap-5">
+        <Panel
+          title="Organic search"
+          sub={`Google ${m.country.toUpperCase()} · approx. monthly`}
+          right={<Globe2 className="h-4 w-4 text-slate-400" />}
+        >
+          {/* headline: how many of the checked keywords rank, and how strong */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold text-slate-500">
+                Keywords ranking
+              </div>
+              <div className="num mt-0.5 text-[26px] font-extrabold leading-none text-brand-700 dark:text-brand-200">
+                {bk.ranked}
+                <span className="text-sm font-semibold text-slate-400">
+                  {" "}
+                  / {bk.checked}
+                </span>
+              </div>
             </div>
-            <div
-              className="whitespace-nowrap text-lg font-extrabold"
-              style={{ color: healthColor(est?.organic?.mid > 0 ? 80 : 40) }}
-            >
-              {est?.organic?.mid > 0 ? compact(est.organic.mid) : "Very low"}
-            </div>
+            {bk.checked > 0 && (
+              <div className="flex shrink-0 gap-4">
+                <MiniRing
+                  value={Math.round((bk.top10 / bk.checked) * 100)}
+                  color="#2dd4bf"
+                  label="Top 10"
+                />
+                <MiniRing
+                  value={Math.round((bk.top3 / bk.checked) * 100)}
+                  color="#6c47ff"
+                  label="Top 3"
+                />
+              </div>
+            )}
           </div>
-          <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
-            <div className="whitespace-nowrap text-[11px] font-semibold text-slate-500">
-              Keywords
-            </div>
-            <div className="text-xl font-extrabold">
-              {bk.ranked}
-              <span className="text-xs font-semibold text-slate-400">
-                {" "}
-                / {bk.checked}
-              </span>
-            </div>
-          </div>
-        </div>
-        <Bar label="Top 3" value={bk.top3} max={bk.checked} color="#16a34a" />
-        <Bar label="Top 10" value={bk.top10} max={bk.checked} color="#3b82f6" />
-        <Bar label="Top 30" value={bk.top30} max={bk.checked} color="#6c47ff" />
-        <Bar
-          label="Not ranking"
-          value={Math.max(0, bk.checked - bk.ranked)}
-          max={bk.checked}
-          color="#d97706"
-        />
-        {bk.checked > 0 && (
-          <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
-            <div className="mb-2 text-xs font-semibold text-slate-500">
-              Keyword performance
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                {
-                  v: Math.round((bk.top10 / bk.checked) * 100),
-                  l: "In top 10",
-                  c: "#2dd4bf",
-                },
-                {
-                  v: Math.round((bk.top3 / bk.checked) * 100),
-                  l: "In top 3",
-                  c: "#6c47ff",
-                },
-              ].map((x) => (
-                <div key={x.l} className="min-w-0">
-                  <div className="text-2xl font-extrabold leading-none">{x.v}%</div>
-                  <div className="my-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${x.v}%`, background: x.c }}
-                    />
+
+          {/* one bar: where the checked keywords sit */}
+          {bk.checked > 0 && (
+            <>
+              <div
+                className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+                role="img"
+                aria-label="Keyword positions"
+              >
+                {segs.map((x) => (
+                  <i
+                    key={x.label}
+                    className="block h-full"
+                    style={{
+                      width: `${(x.n / bk.checked) * 100}%`,
+                      background: x.color,
+                    }}
+                    title={`${x.label}: ${x.n}`}
+                  />
+                ))}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+                {[
+                  { l: "Top 3", n: bk.top3, c: "#16a34a" },
+                  { l: "Top 10", n: bk.top10, c: "#3b82f6" },
+                  { l: "Top 30", n: bk.top30, c: "#6c47ff" },
+                  {
+                    l: "Not ranking",
+                    n: Math.max(0, bk.checked - bk.ranked),
+                    c: "#d97706",
+                  },
+                ].map((x) => (
+                  <div
+                    key={x.l}
+                    className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] dark:bg-slate-800/60"
+                  >
+                    <span className="font-medium text-slate-600 dark:text-slate-300">
+                      <Dot color={x.c} />
+                      {x.l}
+                    </span>
+                    <b className="num text-xs">{x.n}</b>
                   </div>
-                  <div className="text-[11px] font-medium text-slate-500">
-                    Keywords {x.l.toLowerCase()}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Panel>
+                ))}
+              </div>
+            </>
+          )}
+        </Panel>
+
+        {/* AI Search: its own separate box under Organic search */}
+        {aiSlot}
+      </div>
     </div>
   );
 }

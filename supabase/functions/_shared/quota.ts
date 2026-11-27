@@ -4,11 +4,12 @@ import { admin, HttpError } from "./utils.ts";
 // Set with secrets (a number per day; 0 = no limit):  QUOTA_RESEARCH_PER_DAY, QUOTA_KEYWORDS_PER_DAY, QUOTA_BACKLINKS_PER_DAY
 // ADMIN_EMAILS (comma list) are never limited. Saved results (cache and data bank) are answered before this is called, so they cost nothing.
 
-const DEFAULTS = { research: 0, keywords: 0, backlinks: 0 } as const; // 0 = no limit
+const DEFAULTS = { research: 0, keywords: 0, backlinks: 0, aivis: 0 } as const; // 0 = no limit
 const LABEL = {
   research: "new website reports",
   keywords: "keyword lookups",
   backlinks: "backlink scans",
+  aivis: "AI visibility checks",
 } as const;
 
 export function isAdmin(user: { email?: string }) {

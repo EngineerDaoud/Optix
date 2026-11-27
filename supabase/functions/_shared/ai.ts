@@ -180,10 +180,10 @@ export async function claude(
     anthropic: [],
   };
   if (g) {
-    const main = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash";
+    const main = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
     const extra = (
       Deno.env.get("GEMINI_FALLBACK_MODELS") ??
-      "gemini-2.5-flash,gemini-2.5-flash-lite"
+      "gemini-3.5-flash-lite"
     )
       .split(",")
       .map((x) => x.trim())

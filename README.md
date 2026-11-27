@@ -48,7 +48,7 @@ seopilot/
    ```
 5. **Deploy the edge functions**:
    ```
-   npx supabase functions deploy google sync audit insights report scheduled overview crawl research backlinks keywordlab
+   npx supabase functions deploy google sync audit insights report scheduled overview crawl research backlinks keywordlab aivisibility
    ```
 6. **Run**: `npm run dev`, open http://localhost:5173, sign up, add a website.
 7. **Nightly sync + scheduled reports** (optional): enable the `pg_cron` and `pg_net` extensions in
@@ -178,3 +178,7 @@ Run `npx supabase db push` once, then redeploy: `npx supabase functions deploy r
 Set `ADMIN_EMAILS` (your login email) in `supabase/secrets.env` to open the full universe and to run recalibration.
 
 Honest limits: Semrush and Ahrefs own crawlers and clickstream panels. Without them, numbers for sites you do not own stay estimates; they get better as the bank grows and as more sites with Search Console are connected. For your own sites, Search Console and GA4 numbers are real.
+
+## AI Visibility
+
+Dashboard card (press "Run AI check"). It writes customer-style questions for the site, asks them to Gemini (with and without Google Search) and a Groq open model, and counts how often the brand or domain is mentioned or cited. Also checks AI crawler access in robots.txt, llms.txt and schema. Needs `GEMINI_API_KEY` and/or `GROQ_API_KEY` secrets and migration `018_ai_visibility.sql`. Deploy: `npx supabase functions deploy aivisibility`. Results are estimates (stand-ins for ChatGPT / AI Overview), saved for 24 h.

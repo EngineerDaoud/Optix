@@ -36,3 +36,7 @@ verify_jwt = false
 verify_jwt = false
 [functions.livevisitors]
 verify_jwt = false
+[functions.aivisibility]
+verify_jwt = false
+[functions.orgcompetitors]
+verify_jwt = false
