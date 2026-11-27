@@ -226,6 +226,37 @@ async function groqCall(key: string, user: string): Promise<Raw> {
   throw last;
 }
 
+// Groq "compound" = an open model that SEARCHES THE WEB by itself (free plan, same GROQ_API_KEY). Used when Gemini + Google Search
+// is down, over its free limit or not allowed for the key, so the "Google AI" row is not left empty. Sources come from the search it ran.
+async function groqWebCall(key: string, user: string): Promise<Raw> {
+  const model = Deno.env.get("GROQ_WEB_MODEL") ?? "groq/compound-mini";
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    signal: AbortSignal.timeout(callTimeout()),
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: ANSWER_SYSTEM },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new HttpError(r.status, j.error?.message ?? "Groq web search error");
+  const msg = j.choices?.[0]?.message ?? {};
+  const text = String(msg.content ?? "");
+  if (!text) throw new HttpError(502, "Groq web search returned an empty answer");
+  const sources: { uri: string; title: string }[] = [];
+  for (const t of (msg.executed_tools ?? []) as {
+    search_results?: { results?: { url?: string; title?: string }[] };
+  }[])
+    for (const x of t.search_results?.results ?? [])
+      if (x.url) sources.push({ uri: x.url, title: x.title ?? "" });
+  return { text, sources };
+}
+
 async function claudeCall(key: string, user: string): Promise<Raw> {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -255,7 +286,9 @@ async function claudeCall(key: string, user: string): Promise<Raw> {
 /** Which engines can run, from the secrets that exist. */
 export function availableEngines(): EngineId[] {
   const out: EngineId[] = [];
+  // the Google AI row can run on Gemini + Google Search OR (fallback) on Groq's web-searching model
   if (Deno.env.get("GEMINI_API_KEY")) out.push("google", "gemini");
+  else if (Deno.env.get("GROQ_API_KEY")) out.push("google");
   if (Deno.env.get("GROQ_API_KEY")) out.push("open");
   if (Deno.env.get("ANTHROPIC_API_KEY") && Deno.env.get("AIVIS_USE_CLAUDE"))
     out.push("claude");
@@ -263,8 +296,23 @@ export function availableEngines(): EngineId[] {
 }
 
 export async function ask(engine: EngineId, question: string): Promise<Raw> {
-  if (engine === "google")
-    return geminiTry(Deno.env.get("GEMINI_API_KEY")!, question, true);
+  if (engine === "google") {
+    const gk = Deno.env.get("GEMINI_API_KEY");
+    const qk = Deno.env.get("GROQ_API_KEY");
+    if (gk) {
+      try {
+        return await geminiTry(gk, question, true);
+      } catch (e) {
+        if (!qk) throw e; // no fallback key
+        try {
+          return await groqWebCall(qk, question);
+        } catch {
+          throw e; // show the Gemini error: it is the main engine
+        }
+      }
+    }
+    return groqWebCall(qk!, question);
+  }
   if (engine === "gemini")
     return geminiTry(Deno.env.get("GEMINI_API_KEY")!, question, false);
   if (engine === "open") return groqCall(Deno.env.get("GROQ_API_KEY")!, question);

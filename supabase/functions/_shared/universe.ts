@@ -1,6 +1,6 @@
 import { admin } from "./utils.ts";
 import { isShared, rootDomain } from "./siteinfo.ts";
-import { isJunkPhrase } from "./keywords.ts";
+import { hasSearchOperator, isJunkPhrase } from "./keywords.ts";
 
 // SEOPilot keyword universe (migration 010_keyword_universe.sql).
 // What this file does, in plain words:
@@ -139,6 +139,8 @@ export async function recordFromSerp(
   serp: CompactSerp,
 ) {
   const kw = norm(keyword);
+  // our own helper searches (brand mentions, backlink hunts) are not keywords: never save them as rankings
+  if (hasSearchOperator(keyword)) return;
   try {
     const best = new Map<
       string,
@@ -553,7 +555,7 @@ export async function bankDomainKeywords(
       .gte("last_seen", cutoff(120))
       .order("position", { ascending: true })
       .limit(limit);
-    const found = (data ?? []) as {
+    const found = ((data ?? []) as {
       keyword: string;
       position: number;
       url: string | null;
@@ -561,7 +563,7 @@ export async function bankDomainKeywords(
       prev_position: number | null;
       best_position: number | null;
       last_seen: string | null;
-    }[];
+    }[]).filter((r) => !hasSearchOperator(r.keyword));
     if (!found.length) return { rows: [], unvolumed: 0, pending: [] };
     const cal = await loadCalibration();
     const info = new Map<

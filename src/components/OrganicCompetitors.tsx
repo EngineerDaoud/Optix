@@ -4,7 +4,7 @@ import { ArrowDownWideNarrow, ArrowUpNarrowWide, ExternalLink, X } from "lucide-
 import { useOrgCompetitors } from "../lib/orgCompetitors";
 import { ErrorNote, Spinner } from "./ui";
 
-const SHOWN = 5;
+const SHOWN = 10;
 const nf = (n: number) => n.toLocaleString("en-GB");
 
 
@@ -188,7 +188,7 @@ export default function OrganicCompetitors({
         </h2>
       </div>
 
-      <div className="flex-1 px-6 pb-6 pt-3">
+      <div className="flex flex-1 flex-col px-6 pb-6 pt-3">
         <ErrorNote message={error} />
 
         {loading && !data && (
@@ -209,13 +209,15 @@ export default function OrganicCompetitors({
         )}
 
         {more && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="mt-4 rounded-lg bg-[#1b1d1b] px-4 py-2 text-[15px] font-semibold text-white transition hover:bg-black dark:bg-slate-100 dark:text-slate-900"
-          >
-            View details
-          </button>
+          <div className="mt-auto pt-4">
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className="rounded-lg bg-[#1b1d1b] px-4 py-2 text-[15px] font-semibold text-white transition hover:bg-black dark:bg-slate-100 dark:text-slate-900"
+            >
+              View details
+            </button>
+          </div>
         )}
       </div>
 

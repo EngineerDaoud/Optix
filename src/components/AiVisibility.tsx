@@ -11,6 +11,7 @@ type EngineRow = {
   asked: number;
   mentions: number;
   citations: number;
+  error?: string | null;
 };
 type Result = {
   host: string;
@@ -228,7 +229,11 @@ export default function AiVisibility({
                 <div
                   key={e.id}
                   className="grid grid-cols-[1.35fr_1fr_1fr] items-center gap-3"
-                  title={e.note ?? ""}
+                  title={
+                    e.asked
+                      ? (e.note ?? "")
+                      : `No answer from this engine${e.error ? `: ${e.error}` : ""}`
+                  }
                 >
                   <div className="flex items-center gap-2 text-[13px]">
                     {ICON[e.id] ?? <Sparkles className="h-4 w-4" />}

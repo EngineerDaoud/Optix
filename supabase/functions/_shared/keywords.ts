@@ -14,7 +14,18 @@ const JUNK_EXACT =
 const JUNK_INSIDE =
   /\b(?:privacy policy|terms (?:and|&) conditions|terms of (?:service|use)|cookie policy|refund policy|return policy|shipping policy|reset (?:your )?password|forgot (?:your )?password|your cart|my account|log in|sign in)\b/;
 
+/** Google search operators ("brand" -site:x.com, intext:, inurl:, filetype:...). These are queries WE send (mentions, backlinks), never keywords people type. */
+export function hasSearchOperator(phrase: string) {
+  return (
+    /(?:^|\s)-?(?:site|intext|inurl|intitle|allintext|allinurl|allintitle|filetype|ext|related|cache|link|info|define):/i.test(phrase) ||
+    /(?:^|\s)-[a-z0-9]/i.test(phrase) ||
+    /"[^"]*"/.test(phrase) ||
+    /\s(?:OR|AND)\s/.test(phrase)
+  );
+}
+
 export function isJunkPhrase(phrase: string) {
+  if (hasSearchOperator(phrase)) return true;
   const p = phrase
     .toLowerCase()
     .replace(/[^a-z0-9&\s]/g, " ")
